@@ -4,15 +4,24 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/ui": "~58.0.23",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-community/datetimepicker": "9.2.1",
     "expo": "~58.0.19",
     "expo-constants": "~58.0.13",
+    "expo-crypto": "~58.0.7",
     "expo-device": "~58.0.5",
+    "expo-document-picker": "~58.0.4",
+    "expo-file-system": "~58.0.11",
     "expo-font": "~58.0.10",
     "expo-glass-effect": "~58.0.5",
     "expo-image": "~58.0.17",
     "expo-linking": "~58.0.14",
+    "expo-local-authentication": "~58.0.2",
     "expo-router": "~58.0.26",
+    "expo-secure-store": "~58.0.2",
+    "expo-sharing": "~58.0.20",
     "expo-splash-screen": "~58.0.11",
+    "expo-sqlite": "~58.0.14",
     "expo-status-bar": "~58.0.4",
     "expo-symbols": "~58.0.4",
     "expo-system-ui": "~58.0.6",
@@ -24,20 +33,27 @@
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
     "react-native-web": "~0.21.4",
-    "react-native-worklets": "0.13.0"
+    "react-native-worklets": "0.13.0",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~58.0.4",
+    "prettier": "^3.9.10",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test tests/finance.test.mjs",
+    "check": "npm run typecheck && npm run lint && npm test"
   },
   "private": true
 }
