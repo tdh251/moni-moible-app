@@ -8,7 +8,6 @@ import {
   Amount,
   AmountInput,
   AppCard,
-  CategoryPicker,
   Choices,
   ConfirmationDialog,
   Field,
@@ -19,6 +18,7 @@ import {
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
 import { BalanceExclusionCheckbox } from './BalanceExclusionCheckbox';
+import { TransactionCategoryPicker } from '../categories/TransactionCategoryPicker';
 import {
   accountBalances,
   ensure,
@@ -108,6 +108,8 @@ export function TransactionForm({
     (c) =>
       !c.is_archived && c.type === (type === 'income' ? 'income' : 'expense'),
   );
+  const activeCategory = (id: string) =>
+    categories.some((c) => c.id === id) ? id : '';
   const balances = accountBalances(data);
   const updateItem = (id: string, patch: Partial<ItemDraft>) =>
     setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)));
@@ -156,7 +158,7 @@ export function TransactionForm({
             transaction_id: id,
             name: i.name.trim(),
             amount: parseAmount(i.amount),
-            category_id: i.category,
+            category_id: activeCategory(i.category),
             sort_order: index,
           }))
         : [];
@@ -172,7 +174,8 @@ export function TransactionForm({
         exclude_from_balance: excludeFromBalance ? (1 as const) : (0 as const),
         source_account_id: type === 'income' ? null : source,
         destination_account_id: type === 'expense' ? null : destination,
-        category_id: type === 'transfer' || receipt ? null : category,
+        category_id:
+          type === 'transfer' || receipt ? null : activeCategory(category),
         note: note.trim(),
         occurred_at: date.toISOString(),
         created_at: existing?.created_at ?? now,
@@ -279,10 +282,9 @@ export function TransactionForm({
           />
         )}
         {type !== 'transfer' && !(type === 'expense' && itemized) && (
-          <CategoryPicker
-            variant="dropdown"
-            categories={categories}
-            value={category}
+          <TransactionCategoryPicker
+            type={type === 'income' ? 'income' : 'expense'}
+            value={activeCategory(category)}
             onChange={setCategory}
           />
         )}
@@ -302,10 +304,9 @@ export function TransactionForm({
                 value={item.amount}
                 onChangeText={(value) => updateItem(item.id, { amount: value })}
               />
-              <CategoryPicker
-                variant="dropdown"
-                categories={categories}
-                value={item.category}
+              <TransactionCategoryPicker
+                type="expense"
+                value={activeCategory(item.category)}
                 onChange={(value) => updateItem(item.id, { category: value })}
               />
               <SecondaryButton

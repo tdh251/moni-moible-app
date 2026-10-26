@@ -96,6 +96,87 @@ async function fixture(t, amount = 1000) {
   ]);
   return f;
 }
+test('category order persists, stays within its type and rejects stale or duplicate lists atomically', async (t) => {
+  const { repo } = await fixture(t);
+  const before = await repo.snapshot();
+  const expense = before.categories.filter((c) => c.type === 'expense');
+  const income = before.categories.filter((c) => c.type === 'income');
+  const ids = expense.map((c) => c.id).reverse();
+  await repo.reorderCategories('expense', ids);
+  const after = await repo.snapshot();
+  assert.deepEqual(
+    after.categories.filter((c) => c.type === 'expense').map((c) => c.id),
+    ids,
+  );
+  assert.deepEqual(
+    after.categories.filter((c) => c.type === 'income'),
+    income,
+  );
+  await assert.rejects(repo.reorderCategories('expense', ids.slice(1)));
+  await assert.rejects(
+    repo.reorderCategories(
+      'expense',
+      ids.map(() => ids[0]),
+    ),
+  );
+  await assert.rejects(
+    repo.reorderCategories('expense', [...ids.slice(1), income[0].id]),
+  );
+  assert.deepEqual((await repo.snapshot()).categories, after.categories);
+  await repo.saveCategory({
+    ...expense[0],
+    id: 'new-category',
+    name: 'Mới',
+    sort_order: 0,
+  });
+  assert.equal(
+    (await repo.snapshot()).categories
+      .filter((c) => c.type === 'expense')
+      .at(-1).id,
+    'new-category',
+  );
+});
+
+test('deleting categories removes unused ones and archives transaction or receipt categories without changing history', async (t) => {
+  const { repo } = await fixture(t);
+  const category = (await repo.snapshot()).categories[0];
+  await repo.saveCategory({ ...category, id: 'unused' });
+  await repo.deleteCategory('unused');
+  assert.equal(
+    (await repo.snapshot()).categories.some((c) => c.id === 'unused'),
+    false,
+  );
+  await repo.saveTransaction(draft('expense'), false);
+  const receipt = draft('expense', { category_id: null });
+  receipt.items = [
+    {
+      id: 'receipt-item',
+      transaction_id: receipt.id,
+      name: 'Mục chi',
+      amount: 100,
+      category_id: 'default-expense-1',
+      sort_order: 0,
+    },
+  ];
+  await repo.saveTransaction(receipt, false);
+  const before = await repo.snapshot();
+  await repo.deleteCategory('default-expense-0');
+  await repo.deleteCategory('default-expense-1');
+  const after = await repo.snapshot();
+  assert.equal(
+    after.categories.find((c) => c.id === 'default-expense-0').is_archived,
+    1,
+  );
+  assert.equal(
+    after.categories.find((c) => c.id === 'default-expense-1').is_archived,
+    1,
+  );
+  assert.deepEqual(after.transactions, before.transactions);
+  assert.deepEqual(after.items, before.items);
+  assert.deepEqual(accountBalances(after), accountBalances(before));
+  await assert.rejects(repo.deleteCategory('missing'));
+});
+
 test('fresh migrations are repeatable, FK enabled, cash uniqueness and constraints work', async (t) => {
   const { repo, db } = await fixture(t);
   await repo.initialize();

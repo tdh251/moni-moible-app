@@ -1,6 +1,7 @@
 import type {
   Account,
   Category,
+  CategoryType,
   Ledger,
   Snapshot,
   Transaction,
@@ -260,7 +261,55 @@ export class FinanceRepository {
           c.is_archived,
           c.id,
         );
-      else await insertCategory(db, { ...c, name: c.name.trim() });
+      else {
+        const [last] = await db.getAllAsync<{ position: number }>(
+          'SELECT COALESCE(MAX(sort_order),-1)+1 AS position FROM categories WHERE type=?',
+          c.type,
+        );
+        await insertCategory(db, {
+          ...c,
+          name: c.name.trim(),
+          sort_order: last.position,
+        });
+      }
+    });
+  }
+  reorderCategories(type: CategoryType, ids: string[]) {
+    return this.write(async (db) => {
+      const list = (await readSnapshot(db)).categories.filter(
+        (c) => c.type === type,
+      );
+      const expected = new Set(list.map((c) => c.id));
+      ensure(
+        ids.length === expected.size &&
+          new Set(ids).size === expected.size &&
+          ids.every((id) => expected.has(id)),
+        'Danh sách danh mục đã thay đổi. Vui lòng thử lại.',
+      );
+      for (const [index, id] of ids.entries())
+        await db.runAsync(
+          'UPDATE categories SET sort_order=? WHERE id=?',
+          index,
+          id,
+        );
+    });
+  }
+  deleteCategory(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        data.categories.some((c) => c.id === id),
+        'Danh mục không còn tồn tại.',
+      );
+      const used =
+        data.transactions.some((t) => t.category_id === id) ||
+        data.items.some((i) => i.category_id === id);
+      await db.runAsync(
+        used
+          ? 'UPDATE categories SET is_archived=1 WHERE id=?'
+          : 'DELETE FROM categories WHERE id=?',
+        id,
+      );
     });
   }
   saveTransaction(draft: TransactionDraft, editing: boolean) {
