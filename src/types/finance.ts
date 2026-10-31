@@ -10,6 +10,7 @@ export interface Account {
   updated_at: string;
 }
 export interface Category {
+  parent_id?: string | null;
   id: string;
   name: string;
   type: CategoryType;
@@ -19,6 +20,8 @@ export interface Category {
   is_archived: number;
 }
 export interface Transaction {
+  category_ids_json?: string;
+  category_split?: 0 | 1;
   adjustments_json?: string;
   exclude_from_balance?: 0 | 1;
   id: string;

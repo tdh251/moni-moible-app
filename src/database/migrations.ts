@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 6;
 export const migration1 = `
 CREATE TABLE accounts (
  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
@@ -47,4 +47,25 @@ PRAGMA user_version=2;
 export const migration3 = `
 ALTER TABLE transactions ADD COLUMN exclude_from_balance INTEGER NOT NULL DEFAULT 0 CHECK(exclude_from_balance IN (0,1));
 PRAGMA user_version=3;
+`;
+
+export const migration4 = `
+ALTER TABLE categories ADD COLUMN parent_id TEXT REFERENCES categories(id) DEFERRABLE INITIALLY DEFERRED;
+CREATE INDEX categories_parent ON categories(parent_id,sort_order);
+PRAGMA user_version=4;
+`;
+
+export const migration5 = `
+ALTER TABLE transactions ADD COLUMN category_split INTEGER NOT NULL DEFAULT 0 CHECK(category_split IN (0,1));
+PRAGMA user_version=5;
+`;
+
+export const migration6 = `
+ALTER TABLE transactions ADD COLUMN category_ids_json TEXT NOT NULL DEFAULT '[]';
+UPDATE transactions SET category_ids_json=(
+ SELECT json_group_array(category_id) FROM (
+   SELECT category_id FROM transaction_items WHERE transaction_id=transactions.id ORDER BY sort_order,id
+ )
+) WHERE category_split=1;
+PRAGMA user_version=6;
 `;

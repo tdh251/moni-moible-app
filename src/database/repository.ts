@@ -18,12 +18,20 @@ import {
   validateLedger,
 } from '../services/accounting/ledger.ts';
 import { validateBackup, type Backup } from '../services/backup/validation.ts';
+import {
+  categoryDescendants,
+  categoryHierarchyError,
+} from '../services/categories/hierarchy.ts';
+import { transactionCategoryTags } from '../services/categories/tags.ts';
 import { defaultCategories } from './defaults.ts';
 import { resolveTransactionTitle } from '../services/accounting/title.ts';
 import {
   migration1,
   migration2,
   migration3,
+  migration4,
+  migration5,
+  migration6,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -45,6 +53,9 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version === 0) await db.execAsync(migration1);
   if (row.user_version < 2) await db.execAsync(migration2);
   if (row.user_version < 3) await db.execAsync(migration3);
+  if (row.user_version < 4) await db.execAsync(migration4);
+  if (row.user_version < 5) await db.execAsync(migration5);
+  if (row.user_version < 6) await db.execAsync(migration6);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
@@ -85,7 +96,7 @@ async function insertAccount(db: Connection, a: Account) {
 }
 async function insertCategory(db: Connection, c: Category) {
   await db.runAsync(
-    'INSERT INTO categories VALUES (?,?,?,?,?,?,?)',
+    'INSERT INTO categories (id,name,type,icon,color,sort_order,is_archived,parent_id) VALUES (?,?,?,?,?,?,?,?)',
     c.id,
     c.name,
     c.type,
@@ -93,11 +104,12 @@ async function insertCategory(db: Connection, c: Category) {
     c.color,
     c.sort_order,
     c.is_archived,
+    c.parent_id ?? null,
   );
 }
 async function insertTransaction(db: Connection, t: Transaction) {
   await db.runAsync(
-    'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at,adjustments_json,exclude_from_balance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at,adjustments_json,exclude_from_balance,category_split,category_ids_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     t.id,
     t.type,
     t.title,
@@ -111,6 +123,8 @@ async function insertTransaction(db: Connection, t: Transaction) {
     t.updated_at,
     t.adjustments_json ?? '[]',
     t.exclude_from_balance ?? 0,
+    t.category_split ?? 0,
+    t.category_ids_json ?? '[]',
   );
 }
 async function insertItem(db: Connection, i: TransactionItem) {
@@ -248,17 +262,32 @@ export class FinanceRepository {
           ['income', 'expense'].includes(c.type),
         'Tên danh mục từ 1 đến 100 ký tự.',
       );
-      const old = (await readSnapshot(db)).categories.find(
-        (x) => x.id === c.id,
-      );
+      const categories = (await readSnapshot(db)).categories;
+      const old = categories.find((x) => x.id === c.id);
+      const subtree = categoryDescendants(categories, [c.id]);
+      const next = categories
+        .filter((x) => x.id !== c.id)
+        .map((x) =>
+          c.is_archived && subtree.has(x.id) ? { ...x, is_archived: 1 } : x,
+        );
+      const error = categoryHierarchyError([...next, c]);
+      ensure(!error, error ?? 'Cấu trúc danh mục không hợp lệ.');
+      if (c.is_archived)
+        for (const id of subtree) {
+          await db.runAsync(
+            'UPDATE categories SET is_archived=1 WHERE id=?',
+            id,
+          );
+        }
       ensure(!old || old.type === c.type, 'Không thể đổi loại danh mục.');
       if (old)
         await db.runAsync(
-          'UPDATE categories SET name=?,icon=?,color=?,is_archived=? WHERE id=?',
+          'UPDATE categories SET name=?,icon=?,color=?,is_archived=?,parent_id=? WHERE id=?',
           c.name.trim(),
           c.icon,
           c.color,
           c.is_archived,
+          c.parent_id ?? null,
           c.id,
         );
       else {
@@ -301,9 +330,15 @@ export class FinanceRepository {
         data.categories.some((c) => c.id === id),
         'Danh mục không còn tồn tại.',
       );
+      ensure(
+        !data.categories.some((c) => c.parent_id === id),
+        'Hãy chuyển các danh mục con sang danh mục cha khác trước khi xóa.',
+      );
       const used =
-        data.transactions.some((t) => t.category_id === id) ||
-        data.items.some((i) => i.category_id === id);
+        data.transactions.some(
+          (t) =>
+            t.category_id === id || transactionCategoryTags(t).includes(id),
+        ) || data.items.some((i) => i.category_id === id);
       await db.runAsync(
         used
           ? 'UPDATE categories SET is_archived=1 WHERE id=?'
@@ -351,7 +386,7 @@ export class FinanceRepository {
         );
         if (existing.length)
           await db.runAsync(
-            'UPDATE categories SET name=?,icon=?,color=?,is_archived=0 WHERE id=?',
+            'UPDATE categories SET name=?,icon=?,color=?,is_archived=0,parent_id=NULL WHERE id=?',
             c.name,
             c.icon,
             c.color,
@@ -364,7 +399,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 4,
+      version: 7,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));

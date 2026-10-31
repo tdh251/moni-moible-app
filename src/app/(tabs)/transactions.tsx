@@ -1,3 +1,7 @@
+import {
+  categoryPath,
+  categoryTree,
+} from '../../services/categories/hierarchy';
 import { useMemo, useState } from 'react';
 import { SectionList, Text, View } from 'react-native';
 import { router } from 'expo-router';
@@ -107,11 +111,15 @@ export default function History() {
                     multiple
                     label="Danh mục"
                     placeholder="Chọn danh mục"
-                    options={data.categories.map((c) => ({
-                      value: c.id,
-                      label: c.name + (c.is_archived ? ' · lưu trữ' : ''),
-                      icon: c.icon,
-                    }))}
+                    options={categoryTree(data.categories).map(
+                      ({ category: c }) => ({
+                        value: c.id,
+                        label:
+                          categoryPath(data.categories, c.id) +
+                          (c.is_archived ? ' · lưu trữ' : ''),
+                        icon: c.icon,
+                      }),
+                    )}
                     value={
                       filters.categories ??
                       (filters.category ? [filters.category] : [])

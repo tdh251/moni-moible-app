@@ -1,3 +1,4 @@
+import { categoryPath } from '../../services/categories/hierarchy';
 import { useState } from 'react';
 import { Keyboard, Modal, Pressable, Text, View } from 'react-native';
 import { Icon, ScreenContainer, s } from '../../components/ui';
@@ -24,7 +25,7 @@ export function TransactionCategoryPicker({
       <Text style={s.label}>Danh mục</Text>
       <Pressable
         accessibilityRole="combobox"
-        accessibilityLabel={`Danh mục: ${selected?.name ?? 'Chọn danh mục'}`}
+        accessibilityLabel={`Danh mục: ${selected ? categoryPath(data.categories, selected.id) : 'Chọn danh mục'}`}
         accessibilityState={{ expanded: open, disabled: busy }}
         disabled={busy}
         style={[s.field, s.row]}
@@ -35,7 +36,9 @@ export function TransactionCategoryPicker({
       >
         {selected && <Icon name={selected.icon} color={selected.color} />}
         <Text style={[s.text, { flex: 1 }]} numberOfLines={2}>
-          {selected?.name ?? 'Chọn danh mục'}
+          {selected
+            ? categoryPath(data.categories, selected.id)
+            : 'Chọn danh mục'}
         </Text>
         <Icon name="chevron-down-outline" size={18} />
       </Pressable>

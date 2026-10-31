@@ -1,3 +1,5 @@
+import { transactionCategoryTags } from '../../services/categories/tags';
+import { categoryPath } from '../../services/categories/hierarchy';
 import React from 'react';
 import {
   ActivityIndicator,
@@ -436,7 +438,7 @@ export function CategoryPicker({
     ...(all ? [{ value: '', label: 'Tất cả' }] : []),
     ...categories.map((c) => ({
       value: c.id,
-      label: `${c.name}${c.is_archived ? ' · lưu trữ' : ''}`,
+      label: `${categoryPath(categories, c.id)}${c.is_archived ? ' · lưu trữ' : ''}`,
       icon: c.icon,
     })),
   ];
@@ -528,6 +530,7 @@ export function TransactionRow({
       : t.type === 'income'
         ? colors.income
         : colors.muted;
+  const tags = transactionCategoryTags(t);
   const category = ledger.categories.find((c) => c.id === t.category_id);
   const items = ledger.items.filter((i) => i.transaction_id === t.id);
   const name = (id: string | null) =>
@@ -573,7 +576,7 @@ export function TransactionRow({
           <Text style={s.muted} numberOfLines={2}>
             {t.type === 'transfer'
               ? `${name(t.source_account_id)} → ${name(t.destination_account_id)}`
-              : `${name(t.source_account_id ?? t.destination_account_id)} · ${items.length ? `${items.length} mục chi` : (category?.name ?? '')}`}
+              : `${name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map((id) => categoryPath(ledger.categories, id)).join(' · ') : items.length ? `${items.length} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryPath(ledger.categories, category?.id ?? null)}`}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', maxWidth: '46%' }}>

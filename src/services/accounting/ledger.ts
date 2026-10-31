@@ -1,3 +1,8 @@
+import { transactionCategoryTags } from '../categories/tags.ts';
+import {
+  categoryDescendants,
+  categoryHierarchyError,
+} from '../categories/hierarchy.ts';
 import type {
   Account,
   Category,
@@ -74,36 +79,63 @@ export function validateTransaction(
       'Danh mục không đúng loại hoặc đã lưu trữ.',
     );
   };
+  const tags = transactionCategoryTags(t);
+  if (tags.length) {
+    ensure(t.type !== 'transfer', 'Chuyển nội bộ không có nhãn danh mục.');
+    for (const id of tags) category(id, t.type as 'income' | 'expense');
+    ensure(
+      t.category_split === 1 ||
+        (items.length === 0 && t.category_id === tags[0]),
+      'Nhãn danh mục dùng cho toàn bộ giao dịch, không đi kèm các dòng hóa đơn.',
+    );
+    if (t.category_split === 1)
+      ensure(
+        tags.length === items.length &&
+          tags.every((id) => items.some((i) => i.category_id === id)),
+        'Nhãn danh mục cũ phải khớp các mục đã lưu.',
+      );
+  }
+  const split = t.category_split === 1;
+  ensure(
+    t.category_split === undefined || t.category_split === 0 || split,
+    'Trạng thái nhiều danh mục phải là 0 hoặc 1.',
+  );
+  if (split) {
+    ensure(
+      t.type !== 'transfer' && items.length >= 2,
+      'Chọn ít nhất hai danh mục cho giao dịch thu hoặc chi.',
+    );
+    ensure(
+      !adjustments.length,
+      'Phân bổ danh mục không có điều chỉnh hóa đơn.',
+    );
+    ensure(
+      new Set(items.map((i) => i.category_id)).size === items.length,
+      'Mỗi danh mục chỉ được phân bổ một lần.',
+    );
+  }
   if (t.type === 'income') {
     ensure(
-      t.source_account_id === null && items.length === 0,
-      'Thu chỉ có tài khoản nhận, không có mục chi.',
+      t.source_account_id === null && (split || items.length === 0),
+      'Thu chỉ có tài khoản nhận; nhiều danh mục phải dùng chế độ phân bổ.',
     );
     account(t.destination_account_id);
-    category(t.category_id, 'income');
+    // Keep the first income category as the required SQL reference; item amounts drive reporting.
+    if (split)
+      ensure(
+        t.category_id === items[0].category_id,
+        'Danh mục thu chính phải khớp mục phân bổ đầu tiên.',
+      );
+    else category(t.category_id, 'income');
   } else if (t.type === 'expense') {
     ensure(t.destination_account_id === null, 'Chi chỉ có tài khoản nguồn.');
     account(t.source_account_id);
-    if (items.length) {
+    if (items.length)
       ensure(
         t.category_id === null,
-        'Hóa đơn nhiều mục dùng danh mục của từng mục.',
+        'Giao dịch nhiều mục dùng danh mục của từng mục.',
       );
-      for (const item of items) {
-        ensure(
-          item.transaction_id === t.id &&
-            item.name.trim().length > 0 &&
-            item.name.length <= 200,
-          'Tên mục chi không hợp lệ.',
-        );
-        money(item.amount);
-        category(item.category_id, 'expense');
-      }
-      ensure(
-        calculateReceipt(items, adjustments).total === t.amount,
-        'Tổng các mục và điều chỉnh phải bằng tổng hóa đơn.',
-      );
-    } else category(t.category_id, 'expense');
+    else category(t.category_id, 'expense');
   } else {
     ensure(
       t.source_account_id !== t.destination_account_id,
@@ -115,6 +147,24 @@ export function validateTransaction(
     );
     account(t.source_account_id);
     account(t.destination_account_id);
+  }
+  if (items.length && t.type !== 'transfer') {
+    for (const item of items) {
+      ensure(
+        item.transaction_id === t.id &&
+          item.name.trim().length > 0 &&
+          item.name.length <= 200,
+        'Tên mục phân bổ không hợp lệ.',
+      );
+      money(item.amount);
+      category(item.category_id, t.type);
+    }
+    ensure(
+      calculateReceipt(items, adjustments).total === t.amount,
+      split
+        ? 'Tổng tiền các danh mục phải bằng số tiền giao dịch.'
+        : 'Tổng các mục và điều chỉnh phải bằng tổng hóa đơn.',
+    );
   }
 }
 export function accountBalances(ledger: Ledger): Record<string, number> {
@@ -151,6 +201,8 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
   return result;
 }
 export function validateLedger(ledger: Ledger): void {
+  const hierarchyError = categoryHierarchyError(ledger.categories);
+  ensure(!hierarchyError, hierarchyError ?? 'Cấu trúc danh mục không hợp lệ.');
   for (const a of ledger.accounts) {
     ensure(
       a.name.trim().length > 0 && a.name.length <= 100,
@@ -268,7 +320,7 @@ export function filterTransactions(
         ? [filters.account]
         : [],
   );
-  const categories = categoryFilterIds(filters);
+  const categories = categoryFilterIds(filters, ledger.categories);
   if (filters.minAmount !== undefined) money(filters.minAmount, true);
   if (filters.maxAmount !== undefined) money(filters.maxAmount, true);
   ensure(
@@ -294,6 +346,7 @@ export function filterTransactions(
           accounts.has(t.destination_account_id ?? '')) &&
         (!categories.size ||
           categories.has(t.category_id ?? '') ||
+          transactionCategoryTags(t).some((id) => categories.has(id)) ||
           categoryMatches.has(t.id)) &&
         (filters.minAmount === undefined || t.amount >= filters.minAmount) &&
         (filters.maxAmount === undefined || t.amount <= filters.maxAmount) &&
@@ -310,13 +363,40 @@ export function filterTransactions(
 }
 export function statistics(ledger: Ledger, filters: Filters) {
   const transactions = filterTransactions(ledger, filters);
-  const selectedCategories = categoryFilterIds(filters);
+  const selectedCategories = categoryFilterIds(filters, ledger.categories);
   let income = 0;
   let expense = 0;
   const categories = new Map<string, number>();
+  const categoryTotals = new Map<string, number>();
+  const byCategory = new Map(ledger.categories.map((c) => [c.id, c]));
+  const ancestors = (id: string) => {
+    const result = new Set<string>();
+    let current: string | null = id;
+    while (current && !result.has(current)) {
+      result.add(current);
+      current = byCategory.get(current)?.parent_id ?? null;
+    }
+    return result;
+  };
+  let hasCategoryTags = false;
   const grouped = groupItems(ledger);
   for (const t of transactions) {
     if (t.type === 'transfer') continue;
+    const tags = transactionCategoryTags(t);
+    if (tags.length) {
+      hasCategoryTags = true;
+      if (t.type === 'income') income = safeAdd(income, t.amount);
+      else expense = safeAdd(expense, t.amount);
+      const inclusive = new Set<string>();
+      for (const id of tags) {
+        if (selectedCategories.size && !selectedCategories.has(id)) continue;
+        categories.set(id, safeAdd(categories.get(id) ?? 0, t.amount));
+        for (const parent of ancestors(id)) inclusive.add(parent);
+      }
+      for (const id of inclusive)
+        categoryTotals.set(id, safeAdd(categoryTotals.get(id) ?? 0, t.amount));
+      continue;
+    }
     const storedItems = grouped.get(t.id) ?? [];
     const allocation = storedItems.length
       ? calculateReceipt(storedItems, parseAdjustments(t.adjustments_json))
@@ -333,24 +413,38 @@ export function statistics(ledger: Ledger, filters: Filters) {
         : t.amount;
     if (t.type === 'income') income = safeAdd(income, amount);
     else expense = safeAdd(expense, amount);
-    if (items.length)
+    if (items.length) {
       for (const i of items) {
-        if (!selectedCategories.size || selectedCategories.has(i.category_id))
+        if (!selectedCategories.size || selectedCategories.has(i.category_id)) {
           categories.set(
             i.category_id,
             safeAdd(categories.get(i.category_id) ?? 0, i.amount),
           );
+          for (const id of ancestors(i.category_id))
+            categoryTotals.set(
+              id,
+              safeAdd(categoryTotals.get(id) ?? 0, i.amount),
+            );
+        }
       }
-    else if (t.category_id)
+    } else if (t.category_id) {
       categories.set(
         t.category_id,
         safeAdd(categories.get(t.category_id) ?? 0, t.amount),
       );
+      for (const id of ancestors(t.category_id))
+        categoryTotals.set(id, safeAdd(categoryTotals.get(id) ?? 0, t.amount));
+    }
   }
   return {
     income,
     expense,
     net: safeAdd(income, -expense),
+    hasCategoryTags,
+    categoryTotals: Object.fromEntries(categoryTotals) as Record<
+      string,
+      number
+    >,
     categories: Object.fromEntries(categories) as Record<string, number>,
     transactions,
   };
@@ -371,8 +465,12 @@ function groupItems(ledger: Ledger): Map<string, Ledger['items']> {
   return grouped;
 }
 
-function categoryFilterIds(filters: Filters): Set<string> {
-  return new Set(
+function categoryFilterIds(
+  filters: Filters,
+  categories: Category[],
+): Set<string> {
+  return categoryDescendants(
+    categories,
     filters.categories?.length
       ? filters.categories
       : filters.category

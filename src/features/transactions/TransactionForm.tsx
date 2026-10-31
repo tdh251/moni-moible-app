@@ -1,3 +1,9 @@
+import { transactionCategoryTags } from '../../services/categories/tags';
+import { TransactionCategoriesPicker } from './TransactionCategoriesPicker';
+import {
+  prepareTransactionCategories,
+  type CategoryAllocationDraft,
+} from '../../services/accounting/split';
 import { useState } from 'react';
 import { Text } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -23,6 +29,7 @@ import {
   accountBalances,
   ensure,
   parseAmount,
+  safeAdd,
 } from '../../services/accounting/ledger';
 import { typeNames } from '../../utils/format';
 import type { Transaction, TransactionType } from '../../types/finance';
@@ -73,11 +80,6 @@ export function TransactionForm({
         : (initialAccount ?? accounts[0]?.id)) ??
       '',
   );
-  const [category, setCategory] = useState(
-    existing?.category_id ??
-      data.categories.find((c) => !c.is_archived && c.type === type)?.id ??
-      '',
-  );
   const [date, setDate] = useState(
     () => new Date(existing?.occurred_at ?? Date.now()),
   );
@@ -86,7 +88,33 @@ export function TransactionForm({
   const storedItems = data.items.filter(
     (i) => i.transaction_id === existing?.id,
   );
-  const [itemized, setItemized] = useState(storedItems.length > 0);
+  const [mode, setMode] = useState<'categories' | 'items'>(
+    existing?.category_split !== 1 && storedItems.length > 0
+      ? 'items'
+      : 'categories',
+  );
+  const itemized = mode === 'items';
+  const [allocations, setAllocations] = useState<CategoryAllocationDraft[]>(
+    () => {
+      const tags = existing ? transactionCategoryTags(existing) : [];
+      if (tags.length)
+        return tags.map((category) => ({
+          id: randomUUID(),
+          category,
+          amount: '',
+        }));
+      if (existing?.category_split === 1)
+        return storedItems.map((i) => ({
+          id: i.id,
+          category: i.category_id,
+          amount: String(i.amount),
+        }));
+      const category =
+        existing?.category_id ??
+        data.categories.find((c) => !c.is_archived && c.type === type)?.id;
+      return category ? [{ id: randomUUID(), category, amount: '' }] : [];
+    },
+  );
   const [adjustments, setAdjustments] = useState<AdjustmentDraft[]>(() =>
     parseAdjustments(existing?.adjustments_json).map((a) => ({
       id: a.id,
@@ -97,7 +125,7 @@ export function TransactionForm({
     })),
   );
   const [items, setItems] = useState<ItemDraft[]>(
-    storedItems.map((i) => ({
+    (existing?.category_split === 1 ? [] : storedItems).map((i) => ({
       id: i.id,
       name: i.name,
       amount: String(i.amount),
@@ -114,54 +142,103 @@ export function TransactionForm({
   const updateItem = (id: string, patch: Partial<ItemDraft>) =>
     setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   const preview = previewReceipt(items, adjustments);
-  const switchMode = async (next: boolean) => {
-    if (next === itemized) return;
-    if (!next) {
+  const switchMode = async (next: 'categories' | 'items') => {
+    if (next === mode || busy) return;
+    if (itemized) {
       try {
         ensure(
           items.length > 0,
-          'Thêm ít nhất một mục chi trước khi chuyển về đơn giản.',
+          'Thêm ít nhất một mục chi trước khi chuyển chế độ.',
         );
-        const total = calculateReceipt(
+        const receipt = calculateReceipt(
           items.map((i) => ({ amount: parseAmount(i.amount) })),
           parseAdjustmentDrafts(adjustments),
-        ).total;
+        );
         if (
           !(await ConfirmationDialog(
-            'Chuyển sang chi đơn giản?',
-            'Tổng sau điều chỉnh được giữ lại. Chi đơn giản không lưu các dòng điều chỉnh; hãy chọn một danh mục cho tổng này. Bản nháp mục chi và điều chỉnh vẫn được giữ tại màn hình này.',
+            'Chuyển về ghi giao dịch?',
+            'Tổng sau điều chỉnh và các danh mục được giữ lại. Các dòng hóa đơn sẽ không được lưu trong chế độ này. Bản nháp hóa đơn vẫn được giữ tại màn hình này.',
           ))
         )
           return;
-        setAmount(String(total));
-        setCategory(items[0].category);
+        const groups = new Map<string, CategoryAllocationDraft>();
+        items.forEach((item, index) => {
+          const old = groups.get(item.category);
+          groups.set(item.category, {
+            id: old?.id ?? item.id,
+            category: item.category,
+            amount: String(
+              safeAdd(Number(old?.amount ?? 0), receipt.itemAmounts[index]),
+            ),
+          });
+        });
+        setAllocations([...groups.values()]);
+        setAmount(String(receipt.total));
       } catch (e) {
         showError(e);
         return;
       }
-    } else if (!items.length)
-      setItems([{ id: randomUUID(), name: title, amount, category }]);
-    setItemized(next);
+    } else if (!items.length) {
+      try {
+        const selected = prepareTransactionCategories(
+          draftId,
+          'expense',
+          amount,
+          allocations,
+          data.categories,
+        );
+        setItems([
+          {
+            id: randomUUID(),
+            name: title,
+            amount,
+            category: selected.category_id,
+          },
+        ]);
+      } catch {
+        setItems([
+          {
+            id: randomUUID(),
+            name: title,
+            amount,
+            category: allocations[0]?.category ?? categories[0]?.id ?? '',
+          },
+        ]);
+      }
+    }
+    setMode(next);
   };
   const save = async () => {
     try {
       const id = draftId;
       const now = new Date().toISOString();
       const receipt = type === 'expense' && itemized;
+      const selected =
+        type !== 'transfer' && !receipt
+          ? prepareTransactionCategories(
+              id,
+              type,
+              amount,
+              allocations,
+              data.categories,
+            )
+          : null;
       ensure(
         !receipt || items.length > 0,
         'Hóa đơn phải có ít nhất một mục chi.',
       );
-      const parsedItems = receipt
-        ? items.map((i, index) => ({
-            id: i.id,
-            transaction_id: id,
-            name: i.name.trim(),
-            amount: parseAmount(i.amount),
-            category_id: activeCategory(i.category),
-            sort_order: index,
-          }))
-        : [];
+      const parsedItems = selected
+        ? selected.items
+        : receipt
+          ? items.map((i, index) => ({
+              id: i.id,
+              transaction_id: id,
+              name: i.name.trim(),
+              amount: parseAmount(i.amount),
+              category_id: activeCategory(i.category),
+              sort_order: index,
+            }))
+          : [];
       const total = receipt
         ? calculateReceipt(parsedItems, parseAdjustmentDrafts(adjustments))
             .total
@@ -169,13 +246,14 @@ export function TransactionForm({
       const draft = {
         id,
         type,
+        category_split: selected?.category_split ?? (0 as const),
+        category_ids_json: selected?.category_ids_json ?? '[]',
         title: title.trim(),
         amount: total,
         exclude_from_balance: excludeFromBalance ? (1 as const) : (0 as const),
         source_account_id: type === 'income' ? null : source,
         destination_account_id: type === 'expense' ? null : destination,
-        category_id:
-          type === 'transfer' || receipt ? null : activeCategory(category),
+        category_id: selected?.category_id ?? null,
         note: note.trim(),
         occurred_at: date.toISOString(),
         created_at: existing?.created_at ?? now,
@@ -204,10 +282,15 @@ export function TransactionForm({
           value={type}
           onChange={(next) => {
             setType(next);
-            setCategory(
-              data.categories.find((c) => !c.is_archived && c.type === next)
-                ?.id ?? '',
+            setMode('categories');
+            const category = data.categories.find(
+              (c) => !c.is_archived && c.type === next,
+            )?.id;
+            setAllocations(
+              category ? [{ id: randomUUID(), category, amount: '' }] : [],
             );
+            setItems([]);
+            setAdjustments([]);
           }}
           options={(Object.keys(typeNames) as TransactionType[]).map((t) => ({
             value: t,
@@ -235,19 +318,19 @@ export function TransactionForm({
         />
         {type !== 'transfer' && (
           <Text style={s.muted}>
-            {itemized && type === 'expense'
-              ? 'Để trống: dùng tên danh mục có tổng tiền lớn nhất trong hóa đơn.'
-              : 'Để trống: dùng tên danh mục đã chọn.'}
+            {itemized
+              ? 'Để trống: dùng tên danh mục có tổng tiền lớn nhất trong giao dịch.'
+              : 'Để trống: dùng tên danh mục đầu tiên đã chọn.'}
           </Text>
         )}
         {type === 'expense' && (
           <Choices
-            value={itemized ? 'items' : 'simple'}
+            value={mode}
             options={[
-              { value: 'simple', label: 'Chi đơn giản' },
+              { value: 'categories', label: 'Ghi giao dịch' },
               { value: 'items', label: 'Hóa đơn nhiều mục' },
             ]}
-            onChange={(v) => void switchMode(v === 'items')}
+            onChange={(next) => void switchMode(next)}
           />
         )}
         {!(type === 'expense' && itemized) && (
@@ -281,11 +364,11 @@ export function TransactionForm({
             label="Tài khoản nhận"
           />
         )}
-        {type !== 'transfer' && !(type === 'expense' && itemized) && (
-          <TransactionCategoryPicker
-            type={type === 'income' ? 'income' : 'expense'}
-            value={activeCategory(category)}
-            onChange={setCategory}
+        {type !== 'transfer' && !itemized && (
+          <TransactionCategoriesPicker
+            type={type}
+            value={allocations}
+            onChange={setAllocations}
           />
         )}
       </AppCard>

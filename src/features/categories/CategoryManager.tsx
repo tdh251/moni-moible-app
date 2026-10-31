@@ -1,10 +1,17 @@
+import { CategoryAppearancePicker } from './CategoryAppearancePicker';
+import { transactionCategoryTags } from '../../services/categories/tags';
+import { Dropdown } from '../../components/ui/Dropdown';
+import {
+  categoryDescendants,
+  categoryPath,
+  categoryTree,
+} from '../../services/categories/hierarchy';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import {
   ConfirmationDialog,
   Field,
-  Icon,
   PrimaryButton,
   SecondaryButton,
   s,
@@ -13,29 +20,6 @@ import { useFinance } from '../../hooks/finance';
 import type { Category, CategoryType } from '../../types/finance';
 import { colors } from '../../theme';
 import { CategoryList } from './CategoryList';
-
-const icons = [
-  'restaurant-outline',
-  'basket-outline',
-  'home-outline',
-  'bus-outline',
-  'bag-outline',
-  'game-controller-outline',
-  'medkit-outline',
-  'receipt-outline',
-  'briefcase-outline',
-  'gift-outline',
-  'wallet-outline',
-  'ellipsis-horizontal-outline',
-];
-const palette = [
-  '#287D68',
-  '#B76553',
-  '#D4A457',
-  '#648DAB',
-  '#9B7FA7',
-  '#729B84',
-];
 
 export function CategoryManager({
   type,
@@ -53,6 +37,27 @@ export function CategoryManager({
   const list = data.categories.filter((c) => c.type === type);
   const visible = onSelect ? list.filter((c) => !c.is_archived) : list;
   const exists = draft && data.categories.some((c) => c.id === draft.id);
+  const create = (parent?: Category) =>
+    setDraft({
+      id: randomUUID(),
+      name: '',
+      type,
+      parent_id: parent?.id ?? null,
+      icon:
+        parent?.icon ??
+        (type === 'expense' ? 'basket-outline' : 'wallet-outline'),
+      color: parent?.color ?? colors.primary,
+      sort_order: 0,
+      is_archived: 0,
+    });
+  const descendants = draft
+    ? categoryDescendants(list, [draft.id])
+    : new Set<string>();
+  const parentOptions = categoryTree(list).filter(
+    ({ category }) =>
+      (!category.is_archived || category.id === draft?.parent_id) &&
+      !descendants.has(category.id),
+  );
   const save = async () => {
     if (draft && (await mutate((repo) => repo.saveCategory(draft)))) {
       setDraft(null);
@@ -64,7 +69,7 @@ export function CategoryManager({
     if (
       await ConfirmationDialog(
         draft.is_archived ? 'Khôi phục danh mục?' : 'Lưu trữ danh mục?',
-        'Lịch sử và số liệu cũ được giữ nguyên.',
+        'Lưu trữ sẽ ẩn cả các danh mục con khỏi danh sách chọn. Khôi phục danh mục cha trước, rồi khôi phục các danh mục con cần dùng. Lịch sử và số liệu cũ được giữ nguyên.',
       )
     ) {
       if (
@@ -80,15 +85,21 @@ export function CategoryManager({
   };
   const remove = async () => {
     if (!draft || busy) return;
+    const hasChildren = data.categories.some((c) => c.parent_id === draft.id);
     const used =
-      data.transactions.some((t) => t.category_id === draft.id) ||
-      data.items.some((i) => i.category_id === draft.id);
+      data.transactions.some(
+        (t) =>
+          t.category_id === draft.id ||
+          transactionCategoryTags(t).includes(draft.id),
+      ) || data.items.some((i) => i.category_id === draft.id);
     if (
       await ConfirmationDialog(
         'Xóa danh mục?',
-        used
-          ? 'Danh mục đã có giao dịch sẽ được lưu trữ và ẩn khỏi danh sách chọn. Lịch sử và số liệu cũ được giữ nguyên.'
-          : `Xóa danh mục “${draft.name}”?`,
+        hasChildren
+          ? 'Danh mục này có cấp con. Hãy đổi danh mục cha của các cấp con trước khi xóa, hoặc dùng Lưu trữ để ẩn cả nhánh.'
+          : used
+            ? 'Danh mục đã có giao dịch sẽ được lưu trữ và ẩn khỏi danh sách chọn. Lịch sử và số liệu cũ được giữ nguyên.'
+            : `Xóa danh mục “${draft.name}”?`,
         true,
       )
     ) {
@@ -114,45 +125,35 @@ export function CategoryManager({
           maxLength={100}
           editable={!busy}
         />
-        <Text style={s.label}>Biểu tượng</Text>
-        <View style={s.wrap}>
-          {icons.map((icon) => (
-            <Pressable
-              key={icon}
-              accessibilityRole="button"
-              accessibilityLabel={icon}
-              accessibilityState={{ selected: draft.icon === icon }}
-              disabled={busy}
-              style={[s.pill, draft.icon === icon && s.selected]}
-              onPress={() => setDraft({ ...draft, icon })}
-            >
-              <Icon name={icon} />
-            </Pressable>
-          ))}
-        </View>
-        <Text style={s.label}>Màu sắc</Text>
-        <View style={s.wrap}>
-          {palette.map((color) => (
-            <Pressable
-              key={color}
-              accessibilityRole="button"
-              accessibilityLabel={color}
-              accessibilityState={{ selected: draft.color === color }}
-              disabled={busy}
-              onPress={() => setDraft({ ...draft, color })}
-              style={[
-                s.pill,
-                {
-                  backgroundColor: color,
-                  borderWidth: draft.color === color ? 3 : 0,
-                  borderColor: colors.text,
-                  width: 45,
-                  height: 45,
-                },
-              ]}
-            />
-          ))}
-        </View>
+        <Dropdown
+          label="Danh mục cha"
+          placeholder="Không có · Danh mục gốc"
+          value={draft.parent_id ?? ''}
+          options={[
+            { value: '', label: 'Không có · Danh mục gốc' },
+            ...parentOptions.map(({ category }) => ({
+              value: category.id,
+              label: categoryPath(list, category.id),
+              icon: category.icon,
+            })),
+          ]}
+          onChange={(parent_id) => {
+            if (!busy) setDraft({ ...draft, parent_id: parent_id || null });
+          }}
+        />
+        <Text style={s.muted}>
+          Chọn danh mục cha để tạo cấp con. Có thể chọn cả danh mục cha và con
+          khi ghi giao dịch.
+        </Text>
+        <CategoryAppearancePicker
+          key={draft.id}
+          name={draft.name}
+          icon={draft.icon}
+          color={draft.color}
+          disabled={busy}
+          onIconChange={(icon) => setDraft({ ...draft, icon })}
+          onColorChange={(color) => setDraft({ ...draft, color })}
+        />
         <PrimaryButton
           label="Lưu danh mục"
           disabled={busy}
@@ -185,13 +186,17 @@ export function CategoryManager({
     );
   return (
     <View style={{ flex: 1, gap: 12 }}>
-      <Text style={s.muted}>Kéo biểu tượng ☰ để sắp xếp danh mục.</Text>
+      <Text style={s.muted}>
+        Dùng mũi tên để sắp xếp trong cùng cấp. Chạm mũi tên cạnh tên để thu gọn
+        các cấp con.
+      </Text>
       <CategoryList
         categories={visible}
         busy={busy}
         value={value}
         onSelect={onSelect}
         onEdit={(c) => setDraft({ ...c })}
+        onAddChild={create}
         onReorder={(ids) =>
           mutate((repo) =>
             repo.reorderCategories(
@@ -210,17 +215,7 @@ export function CategoryManager({
         label="Thêm danh mục"
         icon="add-outline"
         disabled={busy}
-        onPress={() =>
-          setDraft({
-            id: randomUUID(),
-            name: '',
-            type,
-            icon: type === 'expense' ? 'basket-outline' : 'wallet-outline',
-            color: colors.primary,
-            sort_order: 0,
-            is_archived: 0,
-          })
-        }
+        onPress={() => create()}
       />
       {onClose && (
         <SecondaryButton label="Đóng" disabled={busy} onPress={onClose} />

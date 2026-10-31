@@ -1,3 +1,5 @@
+import { transactionCategoryTags } from '../../services/categories/tags';
+import { categoryPath } from '../../services/categories/hierarchy';
 import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -31,6 +33,7 @@ export default function TransactionDetail() {
         />
       </ScreenContainer>
     );
+  const tags = transactionCategoryTags(t);
   const items = data.items.filter((i) => i.transaction_id === id);
   const receipt = items.length
     ? calculateReceipt(items, parseAdjustments(t.adjustments_json))
@@ -38,7 +41,7 @@ export default function TransactionDetail() {
   const name = (accountId: string | null) =>
     data.accounts.find((a) => a.id === accountId)?.name ?? '';
   const category = (categoryId: string | null) =>
-    data.categories.find((c) => c.id === categoryId)?.name ?? '';
+    categoryPath(data.categories, categoryId);
   const remove = async () => {
     if (
       await ConfirmationDialog(
@@ -77,9 +80,14 @@ export default function TransactionDetail() {
         {t.destination_account_id && (
           <Text style={s.text}>Đến: {name(t.destination_account_id)}</Text>
         )}
-        {t.category_id && (
+        {t.category_id && t.category_split !== 1 && !tags.length && (
           <Text style={s.text}>Danh mục: {category(t.category_id)}</Text>
         )}
+        {tags.map((id) => (
+          <Text key={id} style={s.text}>
+            Danh mục: {category(id)}
+          </Text>
+        ))}
         {!!t.note && <Text style={s.text}>{t.note}</Text>}
         {t.type === 'transfer' && (
           <Text style={s.muted}>
@@ -87,9 +95,13 @@ export default function TransactionDetail() {
           </Text>
         )}
       </AppCard>
-      {!!items.length && (
+      {!!items.length && !tags.length && (
         <AppCard>
-          <Text style={s.heading}>Hóa đơn · {items.length} mục</Text>
+          <Text style={s.heading}>
+            {t.category_split === 1
+              ? `Phân bổ · ${items.length} danh mục`
+              : `Hóa đơn · ${items.length} mục`}
+          </Text>
           {items.map((i) => (
             <View key={i.id} style={s.between}>
               <View style={{ flex: 1 }}>
@@ -99,7 +111,7 @@ export default function TransactionDetail() {
               <Amount value={i.amount} />
             </View>
           ))}
-          {receipt && (
+          {receipt && t.category_split !== 1 && (
             <>
               <View style={s.divider} />
               <View style={s.between}>
