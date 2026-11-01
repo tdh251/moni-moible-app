@@ -1,5 +1,8 @@
 import { TagBadges } from '../../features/tags/TagBadges';
-import { transactionCategoryTags } from '../../services/categories/tags';
+import {
+  itemCategoryIds,
+  transactionCategoryTags,
+} from '../../services/categories/tags';
 import { categoryPath } from '../../services/categories/hierarchy';
 import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -97,7 +100,7 @@ export default function TransactionDetail() {
           </Text>
         )}
       </AppCard>
-      {!!items.length && !tags.length && (
+      {!!items.length && (!tags.length || t.category_split !== 1) && (
         <AppCard>
           <Text style={s.heading}>
             {t.category_split === 1
@@ -108,7 +111,10 @@ export default function TransactionDetail() {
             <View key={i.id} style={s.between}>
               <View style={{ flex: 1 }}>
                 <Text style={s.text}>{i.name}</Text>
-                <Text style={s.muted}>{category(i.category_id)}</Text>
+                <Text style={s.muted}>
+                  {itemCategoryIds(i).map(category).join(' · ')}
+                </Text>
+                <TagBadges transaction={i} tags={data.tags ?? []} />
               </View>
               <Amount value={i.amount} />
             </View>

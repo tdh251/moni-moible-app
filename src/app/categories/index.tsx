@@ -5,22 +5,31 @@ import type { CategoryType } from '../../types/finance';
 
 export default function Categories() {
   const [type, setType] = useState<CategoryType>('expense');
+  const [editing, setEditing] = useState(false);
   return (
     <ScreenContainer
       title="Danh mục"
       subtitle="Một cấp đơn giản, dễ tìm và dễ ghi."
-      back
+      back={!editing}
       scroll={false}
     >
       <Choices
         value={type}
-        onChange={setType}
+        onChange={(type) => {
+          setType(type);
+          setEditing(false);
+        }}
         options={[
           { value: 'expense', label: 'Chi tiêu' },
           { value: 'income', label: 'Thu nhập' },
         ]}
       />
-      <CategoryManager key={type} type={type} />
+      <CategoryManager
+        key={type}
+        type={type}
+        floatingAdd
+        onEditingChange={setEditing}
+      />
     </ScreenContainer>
   );
 }

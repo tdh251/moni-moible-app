@@ -1,10 +1,15 @@
-import { categoryPath } from '../../services/categories/hierarchy';
+import {
+  categoryPath,
+  categoryTree,
+} from '../../services/categories/hierarchy';
 import { useState } from 'react';
-import { Keyboard, Modal, Pressable, Text, View } from 'react-native';
-import { Icon, ScreenContainer, s } from '../../components/ui';
+import { Keyboard, Modal, View } from 'react-native';
+import { ScreenContainer, s } from '../../components/ui';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { useFinance } from '../../hooks/finance';
 import type { CategoryType } from '../../types/finance';
 import { CategoryManager } from './CategoryManager';
+import { PickerLabel } from '../../components/ui/PickerLabel';
 
 export function TransactionCategoryPicker({
   type,
@@ -16,54 +21,62 @@ export function TransactionCategoryPicker({
   onChange: (id: string) => void;
 }) {
   const { data, busy } = useFinance();
-  const [open, setOpen] = useState(false);
-  const selected = data.categories.find(
-    (c) => c.id === value && !c.is_archived && c.type === type,
-  );
+  const [adding, setAdding] = useState(false);
+  const options = categoryTree(
+    data.categories.filter(
+      (category) =>
+        category.type === type &&
+        (!category.is_archived || category.id === value),
+    ),
+  ).map(({ category }) => ({
+    value: category.id,
+    label: categoryPath(data.categories, category.id),
+    icon: category.icon,
+  }));
   return (
-    <View style={{ gap: 6 }}>
-      <Text style={s.label}>Danh mục</Text>
-      <Pressable
-        accessibilityRole="combobox"
-        accessibilityLabel={`Danh mục: ${selected ? categoryPath(data.categories, selected.id) : 'Chọn danh mục'}`}
-        accessibilityState={{ expanded: open, disabled: busy }}
+    <View style={s.selectGroup}>
+      <PickerLabel
+        label="Danh mục"
+        addLabel="Thêm danh mục mới"
         disabled={busy}
-        style={[s.field, s.row]}
-        onPress={() => {
+        onAdd={() => {
           Keyboard.dismiss();
-          setOpen(true);
+          setAdding(true);
         }}
-      >
-        {selected && <Icon name={selected.icon} color={selected.color} />}
-        <Text style={[s.text, { flex: 1 }]} numberOfLines={2}>
-          {selected
-            ? categoryPath(data.categories, selected.id)
-            : 'Chọn danh mục'}
-        </Text>
-        <Icon name="chevron-down-outline" size={18} />
-      </Pressable>
+      />
+      <Dropdown
+        label="Danh mục"
+        placeholder="Chọn danh mục"
+        options={options}
+        value={value}
+        onChange={(id) => {
+          if (!busy) onChange(id);
+        }}
+      />
       <Modal
-        visible={open}
+        visible={adding}
         animationType="slide"
         onRequestClose={() => {
-          if (!busy) setOpen(false);
+          if (!busy) setAdding(false);
         }}
       >
         <ScreenContainer
           title="Danh mục"
-          subtitle={type === 'expense' ? 'Chi tiêu' : 'Thu nhập'}
           scroll={false}
+          onClose={() => setAdding(false)}
+          closeDisabled={busy}
         >
-          <CategoryManager
-            key={type}
-            type={type}
-            value={value}
-            onClose={() => setOpen(false)}
-            onSelect={(id) => {
-              onChange(id);
-              setOpen(false);
-            }}
-          />
+          {adding && (
+            <CategoryManager
+              createOnly
+              type={type}
+              onClose={() => setAdding(false)}
+              onSelect={(id) => {
+                onChange(id);
+                setAdding(false);
+              }}
+            />
+          )}
         </ScreenContainer>
       </Modal>
     </View>

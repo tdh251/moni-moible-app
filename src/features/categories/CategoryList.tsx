@@ -14,6 +14,8 @@ import {
   Text,
   View,
   type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import {
   GestureDetector,
@@ -215,6 +217,8 @@ export function CategoryList({
   onSelect,
   onEdit,
   onReorder,
+  onScroll,
+  bottomPadding = 4,
 }: {
   categories: Category[];
   busy: boolean;
@@ -222,6 +226,8 @@ export function CategoryList({
   onSelect?: (id: string) => void;
   onEdit: (category: Category) => void;
   onReorder: (ids: string[]) => Promise<boolean>;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  bottomPadding?: number;
 }) {
   const [pending, setPending] = useState(false);
   const [optimisticIds, setOptimisticIds] = useState<string[] | null>(null);
@@ -389,7 +395,7 @@ export function CategoryList({
           <ScrollView
             ref={scroll}
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 4 }}
+            contentContainerStyle={{ padding: 4, paddingBottom: bottomPadding }}
             keyboardShouldPersistTaps="handled"
             scrollEnabled={!drag}
             removeClippedSubviews={false}
@@ -399,6 +405,7 @@ export function CategoryList({
             onScroll={(event) => {
               offset.current = event.nativeEvent.contentOffset.y;
               updatePosition();
+              if (!active.current) onScroll?.(event);
             }}
             scrollEventThrottle={16}
           >

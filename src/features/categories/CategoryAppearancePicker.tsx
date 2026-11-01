@@ -15,6 +15,7 @@ export function CategoryAppearancePicker({
   disabled,
   onIconChange,
   onColorChange,
+  searchable = true,
 }: {
   icon: string;
   color: string;
@@ -22,6 +23,7 @@ export function CategoryAppearancePicker({
   disabled: boolean;
   onIconChange: (value: string) => void;
   onColorChange: (value: string) => void;
+  searchable?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState(
@@ -29,7 +31,7 @@ export function CategoryAppearancePicker({
       categoryIconGroups.find((g) => g.icons.some((item) => item.name === icon))
         ?.name ?? '',
   );
-  const query = normalizeIconSearch(search);
+  const query = searchable ? normalizeIconSearch(search) : '';
   const allIcons = categoryIconGroups.flatMap((g) => g.icons);
   const selectedIcon = allIcons.find((item) => item.name === icon);
   const shownGroups = group
@@ -47,9 +49,6 @@ export function CategoryAppearancePicker({
   const selectedColor = categoryPalette.find(
     (item) => item.color.toUpperCase() === color.toUpperCase(),
   );
-  const palette = selectedColor
-    ? categoryPalette
-    : [{ color, label: 'Màu hiện tại' }, ...categoryPalette];
   return (
     <View style={{ gap: 14 }}>
       <Text style={s.label}>Xem trước</Text>
@@ -86,19 +85,21 @@ export function CategoryAppearancePicker({
         </View>
       </View>
       <Text style={s.label}>Biểu tượng · {allIcons.length} lựa chọn</Text>
-      <Field
-        label="Tìm biểu tượng"
-        placeholder="Ví dụ: quần áo, cà phê, thú cưng..."
-        value={search}
-        onChangeText={(value) => {
-          setSearch(value);
-          setGroup('');
-        }}
-        editable={!disabled}
-        autoCapitalize="none"
-        autoCorrect={false}
-        maxLength={100}
-      />
+      {searchable && (
+        <Field
+          label="Tìm biểu tượng"
+          placeholder="Ví dụ: quần áo, cà phê, thú cưng..."
+          value={search}
+          onChangeText={(value) => {
+            setSearch(value);
+            setGroup('');
+          }}
+          editable={!disabled}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={100}
+        />
+      )}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -128,50 +129,57 @@ export function CategoryAppearancePicker({
           ? `${shownIcons.length} biểu tượng${group ? ` · ${group}` : ''}`
           : 'Không tìm thấy biểu tượng. Thử từ khóa khác hoặc chọn Tất cả.'}
       </Text>
-      <View style={[s.wrap, { gap: 10 }]}>
+      <View style={[s.wrap, { gap: 0 }]}>
         {shownIcons.map((item) => (
-          <Pressable
+          <View
             key={item.name}
-            accessibilityRole="button"
-            accessibilityLabel={item.label}
-            accessibilityState={{ selected: icon === item.name, disabled }}
-            disabled={disabled}
-            onPress={() => onIconChange(item.name)}
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 16,
-              borderWidth: icon === item.name ? 2 : 1,
-              borderColor: icon === item.name ? colors.primary : colors.border,
-              backgroundColor: icon === item.name ? colors.light : colors.card,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            style={{ width: '20%', padding: 4, alignItems: 'center' }}
           >
-            <Icon
-              name={item.name}
-              color={icon === item.name ? color : colors.text}
-              size={26}
-            />
-            {icon === item.name && (
-              <View
-                style={{
-                  position: 'absolute',
-                  right: -3,
-                  top: -3,
-                  backgroundColor: colors.card,
-                  borderRadius: 10,
-                }}
-              >
-                <Icon name="checkmark-circle" size={18} />
-              </View>
-            )}
-          </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: icon === item.name, disabled }}
+              disabled={disabled}
+              onPress={() => onIconChange(item.name)}
+              style={{
+                width: '100%',
+                maxWidth: 48,
+                height: 48,
+                borderRadius: 12,
+                borderWidth: icon === item.name ? 2 : 1,
+                borderColor:
+                  icon === item.name ? colors.primary : colors.border,
+                backgroundColor:
+                  icon === item.name ? colors.light : colors.card,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon
+                name={item.name}
+                color={icon === item.name ? color : colors.text}
+                size={22}
+              />
+              {icon === item.name && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    right: -3,
+                    top: -3,
+                    backgroundColor: colors.card,
+                    borderRadius: 10,
+                  }}
+                >
+                  <Icon name="checkmark-circle" size={18} />
+                </View>
+              )}
+            </Pressable>
+          </View>
         ))}
       </View>
       <Text style={s.label}>Màu sắc · {categoryPalette.length} lựa chọn</Text>
-      <View style={[s.wrap, { gap: 10 }]}>
-        {palette.map((item) => {
+      <View style={[s.wrap, { gap: 0 }]}>
+        {categoryPalette.map((item) => {
           const selected = color.toUpperCase() === item.color.toUpperCase();
           const red = parseInt(item.color.slice(1, 3), 16),
             green = parseInt(item.color.slice(3, 5), 16),
@@ -181,38 +189,47 @@ export function CategoryAppearancePicker({
               ? colors.text
               : '#FFFFFF';
           return (
-            <Pressable
+            <View
               key={item.color}
-              accessibilityRole="button"
-              accessibilityLabel={`Màu ${item.label}`}
-              accessibilityState={{ selected, disabled }}
-              disabled={disabled}
-              onPress={() => onColorChange(item.color)}
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                borderWidth: 2,
-                borderColor: selected ? colors.text : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              style={{ width: '20%', padding: 4, alignItems: 'center' }}
             >
-              <View
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Màu ${item.label}`}
+                accessibilityState={{ selected, disabled }}
+                disabled={disabled}
+                onPress={() => onColorChange(item.color)}
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: item.color,
+                  width: '100%',
+                  maxWidth: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  borderWidth: 2,
+                  borderColor: selected ? colors.text : 'transparent',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                {selected && (
-                  <Icon name="checkmark-outline" size={23} color={checkColor} />
-                )}
-              </View>
-            </Pressable>
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: item.color,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {selected && (
+                    <Icon
+                      name="checkmark-outline"
+                      size={23}
+                      color={checkColor}
+                    />
+                  )}
+                </View>
+              </Pressable>
+            </View>
           );
         })}
       </View>

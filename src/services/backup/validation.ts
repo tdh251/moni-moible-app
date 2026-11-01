@@ -1,3 +1,5 @@
+import { singleCategoryLedger } from '../categories/single.ts';
+import { parseLoanCosts } from '../loans.ts';
 import { transactionTagIds } from '../tags.ts';
 import { transactionCategoryTags } from '../categories/tags.ts';
 import type { Ledger, Snapshot } from '../../types/finance.ts';
@@ -11,7 +13,7 @@ import {
 
 export interface Backup {
   format: 'monomoney';
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
   exported_at: string;
   data: Snapshot;
 }
@@ -62,10 +64,18 @@ export function validateBackup(value: unknown): Backup {
         value.version === 5 ||
         value.version === 6 ||
         value.version === 7 ||
-        value.version === 8) &&
+        value.version === 8 ||
+        value.version === 9 ||
+        value.version === 10 ||
+        value.version === 11 ||
+        value.version === 12 ||
+        value.version === 13 ||
+        value.version === 14 ||
+        value.version === 15 ||
+        value.version === 16) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 8.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 16.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -78,6 +88,44 @@ export function validateBackup(value: unknown): Backup {
     transactions = rows(data.transactions),
     items = rows(data.items);
   const tags = rows(data.tags ?? []);
+  const loans = rows(data.loans ?? []);
+  const loanPayments = rows(data.loanPayments ?? []);
+  for (const payment of loanPayments) {
+    ensure(
+      payment.fee_amount === undefined ||
+        (Number.isSafeInteger(payment.fee_amount) &&
+          Number(payment.fee_amount) >= 0),
+      'Phụ phí trả nợ phải là số nguyên VND từ 0 trở lên.',
+    );
+    ensure(
+      backupVersion >= 12 || !payment.fee_amount,
+      'Bản sao lưu có phụ phí trả nợ phải dùng phiên bản 12.',
+    );
+  }
+  for (const loan of loans) {
+    ensure(
+      loan.exclude_from_balance === undefined ||
+        flag(loan.exclude_from_balance),
+      'Trạng thái không cộng tiền vay không hợp lệ.',
+    );
+    ensure(
+      backupVersion >= 11 || loan.exclude_from_balance !== 1,
+      'Bản sao lưu có khoản vay không cộng tiền phải dùng phiên bản 11.',
+    );
+  }
+  for (const loan of loans)
+    ensure(
+      backupVersion >= 10 ||
+        ((loan.due_at === undefined || loan.due_at === null) &&
+          parseLoanCosts(
+            loan as unknown as import('../../types/finance.ts').Loan,
+          ).length === 0),
+      'Bản sao lưu có kỳ hạn hoặc chi phí vay phải dùng phiên bản 10.',
+    );
+  ensure(
+    backupVersion >= 9 || (loans.length === 0 && loanPayments.length === 0),
+    'Bản sao lưu có vay/mượn phải dùng phiên bản 9.',
+  );
   ensure(
     backupVersion >= 8 || tags.length === 0,
     'Bản sao lưu có tag phải dùng phiên bản 8.',
@@ -153,7 +201,26 @@ export function validateBackup(value: unknown): Backup {
     );
   for (const i of items)
     ensure(
+      backupVersion >= 14 ||
+        transactionTagIds(
+          i as unknown as import('../../types/finance.ts').TransactionItem,
+        ).length === 0,
+      'Bản sao lưu có tag mục chi phải dùng phiên bản 14.',
+    );
+  for (const i of items)
+    ensure(
+      backupVersion >= 15 ||
+        transactionCategoryTags(
+          i as unknown as import('../../types/finance.ts').TransactionItem,
+        ).length === 0,
+      'Bản sao lưu có nhiều danh mục cho mục chi phải dùng phiên bản 15.',
+    );
+  for (const i of items)
+    ensure(
       text(i.name) &&
+        (i.category_ids_json === undefined ||
+          text(i.category_ids_json, 1000000)) &&
+        (i.tag_ids_json === undefined || text(i.tag_ids_json, 20000)) &&
         id(i.transaction_id) &&
         id(i.category_id) &&
         order(i.sort_order),
@@ -175,7 +242,17 @@ export function validateBackup(value: unknown): Backup {
       transactions.every((t) => t.exclude_from_balance !== 1),
       'Bản sao lưu có giao dịch không tính vào số dư phải dùng phiên bản 4.',
     );
+  const receiptIds = new Set(items.map((item) => item.transaction_id));
   for (const t of transactions) {
+    ensure(
+      backupVersion >= 13 ||
+        t.category_split === 1 ||
+        !receiptIds.has(t.id) ||
+        transactionCategoryTags(
+          t as unknown as import('../../types/finance.ts').Transaction,
+        ).length === 0,
+      'Bản sao lưu có danh mục chung cho hóa đơn phải dùng phiên bản 13.',
+    );
     const tagIds = transactionTagIds(
       t as unknown as import('../../types/finance.ts').Transaction,
     );
@@ -201,6 +278,16 @@ export function validateBackup(value: unknown): Backup {
   // Shape guards above plus the domain validator check money, references, types, totals and historical balances.
   const ledger = {
     accounts,
+    loans: loans.map((loan) => ({
+      ...loan,
+      due_at: loan.due_at ?? null,
+      costs_json: loan.costs_json ?? '[]',
+      exclude_from_balance: loan.exclude_from_balance ?? 0,
+    })),
+    loanPayments: loanPayments.map((payment) => ({
+      ...payment,
+      fee_amount: payment.fee_amount ?? 0,
+    })),
     tags,
     categories: categories.map((c) => ({
       ...c,
@@ -222,16 +309,32 @@ export function validateBackup(value: unknown): Backup {
             )
           : (t.category_ids_json ?? '[]'),
     })),
-    items,
+    items: items.map((item) => ({
+      ...item,
+      tag_ids_json: item.tag_ids_json ?? '[]',
+      category_ids_json: item.category_ids_json ?? '[]',
+    })),
   } as unknown as Ledger;
   validateLedger(ledger);
+  if (backupVersion >= 16) {
+    ensure(
+      ledger.transactions.every(
+        (t) =>
+          t.category_split !== 1 &&
+          transactionCategoryTags(t).length <= (t.category_id ? 1 : 0),
+      ) &&
+        ledger.items.every((item) => transactionCategoryTags(item).length <= 1),
+      'Mỗi giao dịch và mục chi chỉ có một danh mục; danh mục chỉ có một cấp.',
+    );
+  }
+  const normalized = singleCategoryLedger(ledger);
+  validateLedger(normalized);
   return {
     format: 'monomoney',
-    version: 8,
+    version: 16,
     exported_at: value.exported_at,
     data: {
-      ...ledger,
-      categories: ledger.categories.map((c) => ({ ...c, parent_id: null })),
+      ...normalized,
       onboarded: data.onboarded,
     },
   };

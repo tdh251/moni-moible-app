@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Modal, Text, View } from 'react-native';
+import { Keyboard, Modal, View } from 'react-native';
 import { randomUUID } from 'expo-crypto';
-import { ScreenContainer, SecondaryButton, s } from '../../components/ui';
+import { ScreenContainer, s } from '../../components/ui';
+import { PickerLabel } from '../../components/ui/PickerLabel';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { useFinance } from '../../hooks/finance';
 import { CategoryManager } from '../categories/CategoryManager';
@@ -16,10 +17,12 @@ export function TransactionCategoriesPicker({
   type,
   value,
   onChange,
+  label = 'Danh mục',
 }: {
   type: CategoryType;
   value: CategoryAllocationDraft[];
   onChange: (next: CategoryAllocationDraft[]) => void;
+  label?: string;
 }) {
   const { data, busy } = useFinance();
   const [adding, setAdding] = useState(false);
@@ -48,21 +51,22 @@ export function TransactionCategoriesPicker({
     );
   };
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={s.label}>Danh mục</Text>
-      <Dropdown
-        multiple
-        label="Danh mục"
-        placeholder="Chọn một hoặc nhiều danh mục"
-        options={options}
-        value={value.map((row) => row.category)}
-        onChange={select}
-      />
-      <SecondaryButton
-        label="Thêm danh mục mới"
-        icon="add-outline"
+    <View style={s.selectGroup}>
+      <PickerLabel
+        label={label}
+        addLabel="Thêm danh mục mới"
         disabled={busy}
-        onPress={() => setAdding(true)}
+        onAdd={() => {
+          Keyboard.dismiss();
+          setAdding(true);
+        }}
+      />
+      <Dropdown
+        label={label}
+        placeholder="Chọn danh mục"
+        options={options}
+        value={value[0]?.category ?? ''}
+        onChange={(id) => select([id])}
       />
       <Modal
         visible={adding}
@@ -73,18 +77,21 @@ export function TransactionCategoriesPicker({
       >
         <ScreenContainer
           title="Danh mục"
-          subtitle={type === 'income' ? 'Thu nhập' : 'Chi tiêu'}
           scroll={false}
+          onClose={() => setAdding(false)}
+          closeDisabled={busy}
         >
-          <CategoryManager
-            type={type}
-            onClose={() => setAdding(false)}
-            onSelect={(id) => {
-              if (!value.some((row) => row.category === id))
-                select([...value.map((row) => row.category), id]);
-              setAdding(false);
-            }}
-          />
+          {adding && (
+            <CategoryManager
+              createOnly
+              type={type}
+              onClose={() => setAdding(false)}
+              onSelect={(id) => {
+                select([id]);
+                setAdding(false);
+              }}
+            />
+          )}
         </ScreenContainer>
       </Modal>
     </View>

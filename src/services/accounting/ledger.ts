@@ -1,5 +1,9 @@
+import { loanCashFlows, validateLoans } from '../loans.ts';
 import { transactionTagIds, validateTags } from '../tags.ts';
-import { transactionCategoryTags } from '../categories/tags.ts';
+import {
+  itemCategoryIds,
+  transactionCategoryTags,
+} from '../categories/tags.ts';
 import {
   categoryDescendants,
   categoryHierarchyError,
@@ -98,13 +102,19 @@ export function validateTransaction(
     );
   };
   const tags = transactionCategoryTags(t);
+  if (active)
+    ensure(
+      t.category_split !== 1 && tags.length <= (items.length ? 0 : 1),
+      'Mỗi giao dịch chỉ được chọn một danh mục.',
+    );
   if (tags.length) {
     ensure(t.type !== 'transfer', 'Chuyển nội bộ không có nhãn danh mục.');
     for (const id of tags) category(id, t.type as 'income' | 'expense');
     ensure(
       t.category_split === 1 ||
+        (t.type === 'expense' && items.length > 0 && t.category_id === null) ||
         (items.length === 0 && t.category_id === tags[0]),
-      'Nhãn danh mục dùng cho toàn bộ giao dịch, không đi kèm các dòng hóa đơn.',
+      'Danh mục chung của giao dịch không hợp lệ.',
     );
     if (t.category_split === 1)
       ensure(
@@ -175,7 +185,43 @@ export function validateTransaction(
         'Tên mục phân bổ không hợp lệ.',
       );
       money(item.amount);
-      category(item.category_id, t.type);
+      const previousItem = active
+        ? ledger.items.find(
+            (old) => old.id === item.id && old.transaction_id === t.id,
+          )
+        : undefined;
+      const previousTags = new Set(
+        previousItem ? transactionTagIds(previousItem) : [],
+      );
+      const itemTags = transactionTagIds(item);
+      ensure(
+        !split || itemTags.length === 0,
+        'Tag mục chi chỉ dùng cho hóa đơn nhiều mục.',
+      );
+      for (const id of itemTags) {
+        const tag = lookup?.tags
+          ? lookup.tags.get(id)
+          : ledger.tags?.find((tag) => tag.id === id);
+        ensure(
+          tag && (!active || !tag.is_archived || previousTags.has(id)),
+          'Tag mục chi không tồn tại hoặc đã lưu trữ.',
+        );
+      }
+      const itemCategories = itemCategoryIds(item);
+      if (active)
+        ensure(
+          itemCategories.length === 1,
+          'Mỗi mục chi chỉ được chọn một danh mục.',
+        );
+      ensure(
+        itemCategories[0] === item.category_id,
+        'Danh mục chính phải khớp danh mục đầu tiên của mục chi.',
+      );
+      ensure(
+        !split || transactionCategoryTags(item).length === 0,
+        'Phân bổ cũ không có nhãn danh mục mục chi.',
+      );
+      for (const id of itemCategories) category(id, t.type);
     }
     ensure(
       calculateReceipt(items, adjustments).total === t.amount,
@@ -193,7 +239,7 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
     money(a.opening_balance, true);
     result[a.id] = a.opening_balance;
   }
-  const sorted = [...ledger.transactions].sort(
+  const sorted = [...ledger.transactions, ...loanCashFlows(ledger)].sort(
     (a, b) =>
       a.occurred_at.localeCompare(b.occurred_at) ||
       a.created_at.localeCompare(b.created_at) ||
@@ -219,6 +265,7 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
   return result;
 }
 export function validateLedger(ledger: Ledger): void {
+  validateLoans(ledger);
   validateTags(ledger.tags ?? []);
   const hierarchyError = categoryHierarchyError(ledger.categories);
   ensure(!hierarchyError, hierarchyError ?? 'Cấu trúc danh mục không hợp lệ.');
@@ -352,8 +399,15 @@ export function filterTransactions(
   );
   const categoryMatches = new Set(
     ledger.items
-      .filter((i) => categories.has(i.category_id))
+      .filter((i) => itemCategoryIds(i).some((id) => categories.has(id)))
       .map((i) => i.transaction_id),
+  );
+  const itemTagMatches = new Set(
+    ledger.items
+      .filter((item) =>
+        transactionTagIds(item).some((id) => selectedTags.has(id)),
+      )
+      .map((item) => item.transaction_id),
   );
   return ledger.transactions
     .filter((t) => {
@@ -363,7 +417,8 @@ export function filterTransactions(
         date < end &&
         (!filters.type || t.type === filters.type) &&
         (!selectedTags.size ||
-          transactionTagIds(t).some((id) => selectedTags.has(id))) &&
+          transactionTagIds(t).some((id) => selectedTags.has(id)) ||
+          itemTagMatches.has(t.id)) &&
         (!accounts.size ||
           accounts.has(t.source_account_id ?? '') ||
           accounts.has(t.destination_account_id ?? '')) &&
@@ -387,6 +442,7 @@ export function filterTransactions(
 export function statistics(ledger: Ledger, filters: Filters) {
   const transactions = filterTransactions(ledger, filters);
   const selectedCategories = categoryFilterIds(filters, ledger.categories);
+  const selectedTags = new Set(filters.tags ?? []);
   let income = 0;
   let expense = 0;
   const categories = new Map<string, number>();
@@ -394,11 +450,21 @@ export function statistics(ledger: Ledger, filters: Filters) {
     string,
     { income: number; expense: number; count: number }
   >();
-  const addTagAmounts = (t: Transaction, amount: number) => {
-    for (const id of transactionTagIds(t)) {
+  const addTagAmounts = (
+    t: Transaction,
+    amount: number,
+    items: { amount: number; tag_ids_json?: string }[] = [],
+  ) => {
+    const parentTags = new Set(transactionTagIds(t));
+    const values = new Map([...parentTags].map((id) => [id, amount]));
+    for (const item of items)
+      for (const id of transactionTagIds(item))
+        if (!parentTags.has(id))
+          values.set(id, safeAdd(values.get(id) ?? 0, item.amount));
+    for (const [id, value] of values) {
       const row = tags.get(id) ?? { income: 0, expense: 0, count: 0 };
-      if (t.type === 'income') row.income = safeAdd(row.income, amount);
-      if (t.type === 'expense') row.expense = safeAdd(row.expense, amount);
+      if (t.type === 'income') row.income = safeAdd(row.income, value);
+      if (t.type === 'expense') row.expense = safeAdd(row.expense, value);
       row.count += 1;
       tags.set(id, row);
     }
@@ -419,6 +485,70 @@ export function statistics(ledger: Ledger, filters: Filters) {
   for (const t of transactions) {
     if (t.type === 'transfer') continue;
     const tags = transactionCategoryTags(t);
+    const storedItems = grouped.get(t.id) ?? [];
+    const receiptAllocation = storedItems.length
+      ? calculateReceipt(storedItems, parseAdjustments(t.adjustments_json))
+      : null;
+    const parentMatchesTag =
+      !selectedTags.size ||
+      transactionTagIds(t).some((id) => selectedTags.has(id));
+    const taggedItems = storedItems
+      .map((item, index) => ({
+        ...item,
+        amount: receiptAllocation!.itemAmounts[index],
+      }))
+      .filter(
+        (item) =>
+          parentMatchesTag ||
+          transactionTagIds(item).some((id) => selectedTags.has(id)),
+      );
+    if (storedItems.length && t.category_split !== 1) {
+      hasCategoryTags ||=
+        tags.length > 0 ||
+        storedItems.some((item) => itemCategoryIds(item).length > 1);
+      const categoryWide =
+        !selectedCategories.size ||
+        tags.some((id) => selectedCategories.has(id));
+      const reportedItems = taggedItems.filter(
+        (item) =>
+          categoryWide ||
+          itemCategoryIds(item).some((id) => selectedCategories.has(id)),
+      );
+      const amount = reportedItems.reduce(
+        (sum, item) => safeAdd(sum, item.amount),
+        0,
+      );
+      addTagAmounts(t, amount, reportedItems);
+      expense = safeAdd(expense, amount);
+      const amounts = new Map<string, number>();
+      const inclusive = new Map<string, number>();
+      for (const item of taggedItems) {
+        const itemAncestors = new Set<string>();
+        for (const id of itemCategoryIds(item)) {
+          if (selectedCategories.size && !selectedCategories.has(id)) continue;
+          amounts.set(id, safeAdd(amounts.get(id) ?? 0, item.amount));
+          for (const parent of ancestors(id)) itemAncestors.add(parent);
+        }
+        for (const id of itemAncestors)
+          inclusive.set(id, safeAdd(inclusive.get(id) ?? 0, item.amount));
+      }
+      const eligibleTotal = taggedItems.reduce(
+        (sum, item) => safeAdd(sum, item.amount),
+        0,
+      );
+      // Historical receipt-wide labels stay readable until the receipt is edited.
+      for (const id of tags) {
+        if (selectedCategories.size && !selectedCategories.has(id)) continue;
+        amounts.set(id, eligibleTotal);
+        for (const parent of ancestors(id))
+          inclusive.set(parent, eligibleTotal);
+      }
+      for (const [id, value] of amounts)
+        categories.set(id, safeAdd(categories.get(id) ?? 0, value));
+      for (const [id, value] of inclusive)
+        categoryTotals.set(id, safeAdd(categoryTotals.get(id) ?? 0, value));
+      continue;
+    }
     if (tags.length) {
       hasCategoryTags = true;
       addTagAmounts(t, t.amount);
@@ -434,21 +564,23 @@ export function statistics(ledger: Ledger, filters: Filters) {
         categoryTotals.set(id, safeAdd(categoryTotals.get(id) ?? 0, t.amount));
       continue;
     }
-    const storedItems = grouped.get(t.id) ?? [];
-    const allocation = storedItems.length
-      ? calculateReceipt(storedItems, parseAdjustments(t.adjustments_json))
-      : null;
-    const items = storedItems.map((item, index) => ({
-      ...item,
-      amount: allocation!.itemAmounts[index],
-    }));
-    const amount =
-      selectedCategories.size && items.length
-        ? items
-            .filter((i) => selectedCategories.has(i.category_id))
-            .reduce((sum, i) => safeAdd(sum, i.amount), 0)
-        : t.amount;
-    addTagAmounts(t, amount);
+    const items = taggedItems;
+    const amount = storedItems.length
+      ? items
+          .filter(
+            (i) =>
+              !selectedCategories.size || selectedCategories.has(i.category_id),
+          )
+          .reduce((sum, i) => safeAdd(sum, i.amount), 0)
+      : t.amount;
+    addTagAmounts(
+      t,
+      amount,
+      items.filter(
+        (item) =>
+          !selectedCategories.size || selectedCategories.has(item.category_id),
+      ),
+    );
     if (t.type === 'income') income = safeAdd(income, amount);
     else expense = safeAdd(expense, amount);
     if (items.length) {

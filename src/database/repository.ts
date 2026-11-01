@@ -4,6 +4,8 @@ import {
   validateTags,
 } from '../services/tags.ts';
 import type {
+  Loan,
+  LoanPayment,
   Account,
   Category,
   CategoryType,
@@ -24,7 +26,10 @@ import {
   validateLedger,
 } from '../services/accounting/ledger.ts';
 import { validateBackup, type Backup } from '../services/backup/validation.ts';
-import { transactionCategoryTags } from '../services/categories/tags.ts';
+import {
+  itemCategoryIds,
+  transactionCategoryTags,
+} from '../services/categories/tags.ts';
 import { defaultCategories } from './defaults.ts';
 import { resolveTransactionTitle } from '../services/accounting/title.ts';
 import {
@@ -36,6 +41,14 @@ import {
   migration6,
   migration7,
   migration8,
+  migration9,
+  migration10,
+  migration11,
+  migration12,
+  migration13,
+  migration14,
+  migration15,
+  migration16,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -62,9 +75,23 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 6) await db.execAsync(migration6);
   if (row.user_version < 7) await db.execAsync(migration7);
   if (row.user_version < 8) await db.execAsync(migration8);
+  if (row.user_version < 9) await db.execAsync(migration9);
+  if (row.user_version < 10) await db.execAsync(migration10);
+  if (row.user_version < 11) await db.execAsync(migration11);
+  if (row.user_version < 12) await db.execAsync(migration12);
+  if (row.user_version < 13) await db.execAsync(migration13);
+  if (row.user_version < 14) await db.execAsync(migration14);
+  if (row.user_version < 15) await db.execAsync(migration15);
+  if (row.user_version < 16) await db.execAsync(migration16);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
+  const loans = await db.getAllAsync<Loan>(
+    'SELECT * FROM loans ORDER BY occurred_at DESC,created_at DESC,id DESC',
+  );
+  const loanPayments = await db.getAllAsync<LoanPayment>(
+    'SELECT * FROM loan_payments ORDER BY occurred_at DESC,created_at DESC,id DESC',
+  );
   const accounts = await db.getAllAsync<Account>(
     "SELECT * FROM accounts ORDER BY CASE WHEN type='cash' THEN 0 ELSE 1 END,created_at,id",
   );
@@ -85,6 +112,8 @@ export async function readSnapshot(db: Connection): Promise<Snapshot> {
   );
   return {
     accounts,
+    loans,
+    loanPayments,
     tags,
     categories,
     transactions,
@@ -140,18 +169,47 @@ async function insertTransaction(db: Connection, t: Transaction) {
 }
 async function insertItem(db: Connection, i: TransactionItem) {
   await db.runAsync(
-    'INSERT INTO transaction_items VALUES (?,?,?,?,?,?)',
+    'INSERT INTO transaction_items (id,transaction_id,name,amount,category_id,sort_order,tag_ids_json,category_ids_json) VALUES (?,?,?,?,?,?,?,?)',
     i.id,
     i.transaction_id,
     i.name,
     i.amount,
     i.category_id,
     i.sort_order,
+    i.tag_ids_json ?? '[]',
+    i.category_ids_json ?? '[]',
+  );
+}
+async function insertLoan(db: Connection, loan: Loan) {
+  await db.runAsync(
+    'INSERT INTO loans (id,lender,amount,account_id,note,occurred_at,created_at,due_at,costs_json,exclude_from_balance) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    loan.id,
+    loan.lender,
+    loan.amount,
+    loan.account_id,
+    loan.note,
+    loan.occurred_at,
+    loan.created_at,
+    loan.due_at ?? null,
+    loan.costs_json ?? '[]',
+    loan.exclude_from_balance ?? 0,
+  );
+}
+async function insertLoanPayment(db: Connection, p: LoanPayment) {
+  await db.runAsync(
+    'INSERT INTO loan_payments (id,loan_id,amount,account_id,occurred_at,created_at,fee_amount) VALUES (?,?,?,?,?,?,?)',
+    p.id,
+    p.loan_id,
+    p.amount,
+    p.account_id,
+    p.occurred_at,
+    p.created_at,
+    p.fee_amount ?? 0,
   );
 }
 async function clear(db: Connection) {
   await db.execAsync(
-    'DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
+    'DELETE FROM loan_payments; DELETE FROM loans; DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
   );
 }
 export class FinanceRepository {
@@ -293,8 +351,8 @@ export class FinanceRepository {
         (data.tags ?? []).some((t) => t.id === id),
         'Tag không còn tồn tại.',
       );
-      const used = data.transactions.some((t) =>
-        transactionTagIds(t).includes(id),
+      const used = [...data.transactions, ...data.items].some((row) =>
+        transactionTagIds(row).includes(id),
       );
       await db.runAsync(
         used
@@ -370,7 +428,7 @@ export class FinanceRepository {
         data.transactions.some(
           (t) =>
             t.category_id === id || transactionCategoryTags(t).includes(id),
-        ) || data.items.some((i) => i.category_id === id);
+        ) || data.items.some((i) => itemCategoryIds(i).includes(id));
       await db.runAsync(
         used
           ? 'UPDATE categories SET is_archived=1 WHERE id=?'
@@ -387,15 +445,16 @@ export class FinanceRepository {
       ensure(editing === !!old, 'Giao dịch đã thay đổi. Hãy mở lại màn hình.');
       const saved = {
         ...draft,
-        title: resolveTransactionTitle(draft, data.categories),
+        title: resolveTransactionTitle(draft),
         created_at: old?.created_at ?? draft.created_at,
         updated_at: new Date().toISOString(),
       };
       replaceTransaction(data, saved);
       if (editing)
         await db.runAsync('DELETE FROM transactions WHERE id=?', saved.id);
-      await insertTransaction(db, saved);
-      for (const i of saved.items) await insertItem(db, i);
+      await insertTransaction(db, { ...saved, category_ids_json: '[]' });
+      for (const i of saved.items)
+        await insertItem(db, { ...i, category_ids_json: '[]' });
     });
   }
   deleteTransaction(id: string) {
@@ -407,6 +466,65 @@ export class FinanceRepository {
       );
       removeTransaction(data, id);
       await db.runAsync('DELETE FROM transactions WHERE id=?', id);
+    });
+  }
+  addLoan(loan: Loan) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      ensure(
+        data.accounts.some((a) => a.id === loan.account_id && !a.is_archived),
+        'Chọn tài khoản nhận tiền đang hoạt động.',
+      );
+      const saved = { ...loan, lender: loan.lender.trim() };
+      validateLedger({ ...data, loans: [...(data.loans ?? []), saved] });
+      await insertLoan(db, saved);
+    });
+  }
+  repayLoan(payment: LoanPayment) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      ensure(
+        data.accounts.some(
+          (a) => a.id === payment.account_id && !a.is_archived,
+        ),
+        'Chọn tài khoản trả nợ đang hoạt động.',
+      );
+      validateLedger({
+        ...data,
+        loanPayments: [...(data.loanPayments ?? []), payment],
+      });
+      await insertLoanPayment(db, payment);
+    });
+  }
+  deleteLoan(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        data.loans?.some((loan) => loan.id === id),
+        'Khoản vay không tồn tại.',
+      );
+      validateLedger({
+        ...data,
+        loans: data.loans?.filter((loan) => loan.id !== id),
+        loanPayments: data.loanPayments?.filter((p) => p.loan_id !== id),
+      });
+      await db.runAsync('DELETE FROM loans WHERE id=?', id);
+    });
+  }
+  deleteLoanPayment(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        data.loanPayments?.some((p) => p.id === id),
+        'Lần trả nợ không tồn tại.',
+      );
+      validateLedger({
+        ...data,
+        loanPayments: data.loanPayments?.filter((p) => p.id !== id),
+      });
+      await db.runAsync('DELETE FROM loan_payments WHERE id=?', id);
     });
   }
   restoreDefaults() {
@@ -431,7 +549,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 8,
+      version: 16,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));
@@ -453,6 +571,9 @@ export class FinanceRepository {
       for (const c of backup.data.categories) await insertCategory(db, c);
       for (const t of backup.data.transactions) await insertTransaction(db, t);
       for (const i of backup.data.items) await insertItem(db, i);
+      for (const loan of backup.data.loans ?? []) await insertLoan(db, loan);
+      for (const payment of backup.data.loanPayments ?? [])
+        await insertLoanPayment(db, payment);
       await db.runAsync(
         "INSERT INTO settings VALUES ('onboarded',?)",
         String(backup.data.onboarded),
@@ -487,6 +608,8 @@ export function makeAccount(
 export function emptyLedger(): Ledger {
   return {
     accounts: [],
+    loans: [],
+    loanPayments: [],
     tags: [],
     categories: [],
     transactions: [],

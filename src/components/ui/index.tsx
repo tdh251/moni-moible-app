@@ -5,6 +5,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -121,6 +122,14 @@ export const s = StyleSheet.create({
     color: colors.text,
     marginBottom: 7,
   },
+  fieldGroup: { gap: 8 },
+  selectGroup: { gap: 6 },
+  fieldLabel: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: colors.text,
+  },
   pill: {
     minHeight: 42,
     paddingHorizontal: 14,
@@ -138,10 +147,14 @@ export function AppHeader({
   title,
   subtitle,
   back = false,
+  onClose,
+  closeDisabled = false,
 }: {
   title: string;
   subtitle?: string;
   back?: boolean;
+  onClose?: () => void;
+  closeDisabled?: boolean;
 }) {
   return (
     <View style={{ gap: 6 }}>
@@ -161,9 +174,32 @@ export function AppHeader({
           </View>
         </Pressable>
       )}
-      <Text accessibilityRole="header" style={s.title}>
-        {title}
-      </Text>
+      <View style={s.between}>
+        <Text accessibilityRole="header" style={[s.title, { flex: 1 }]}>
+          {title}
+        </Text>
+        {onClose && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Đóng popup"
+            accessibilityState={{ disabled: closeDisabled }}
+            disabled={closeDisabled}
+            onPress={() => {
+              Keyboard.dismiss();
+              onClose();
+            }}
+            style={({ pressed }) => ({
+              minWidth: 48,
+              minHeight: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: closeDisabled ? 0.45 : pressed ? 0.7 : 1,
+            })}
+          >
+            <Icon name="close-outline" size={26} />
+          </Pressable>
+        )}
+      </View>
       {subtitle && <Text style={s.muted}>{subtitle}</Text>}
     </View>
   );
@@ -174,12 +210,16 @@ export function ScreenContainer({
   back,
   children,
   scroll = true,
+  onClose,
+  closeDisabled = false,
 }: {
   title: string;
   subtitle?: string;
   back?: boolean;
   children: React.ReactNode;
   scroll?: boolean;
+  onClose?: () => void;
+  closeDisabled?: boolean;
 }) {
   return (
     <SafeAreaView style={s.screen} edges={['top', 'left', 'right', 'bottom']}>
@@ -193,12 +233,24 @@ export function ScreenContainer({
             keyboardDismissMode="on-drag"
             contentContainerStyle={s.content}
           >
-            <AppHeader title={title} subtitle={subtitle} back={back} />
+            <AppHeader
+              title={title}
+              subtitle={subtitle}
+              back={back}
+              onClose={onClose}
+              closeDisabled={closeDisabled}
+            />
             {children}
           </ScrollView>
         ) : (
           <View style={[s.content, { flex: 1, paddingBottom: 0 }]}>
-            <AppHeader title={title} subtitle={subtitle} back={back} />
+            <AppHeader
+              title={title}
+              subtitle={subtitle}
+              back={back}
+              onClose={onClose}
+              closeDisabled={closeDisabled}
+            />
             {children}
           </View>
         )}
@@ -279,8 +331,8 @@ export function SecondaryButton({
 }
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   return (
-    <View>
-      <Text style={s.label}>{label}</Text>
+    <View style={s.fieldGroup}>
+      <Text style={s.fieldLabel}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor={colors.muted}
@@ -298,10 +350,12 @@ export function AmountInput({
   label = 'Số tiền (VND)',
   value,
   onChangeText,
+  showHint = true,
 }: {
   label?: string;
   value: string;
   onChangeText: (v: string) => void;
+  showHint?: boolean;
 }) {
   return (
     <View>
@@ -313,11 +367,13 @@ export function AmountInput({
         maxLength={16}
         placeholder="0"
       />
-      <Text style={s.muted}>
-        {/^\d+$/.test(value) && Number.isSafeInteger(Number(value))
-          ? formatVnd(Number(value))
-          : 'Nhập số nguyên, không dùng dấu phân cách'}
-      </Text>
+      {showHint && (
+        <Text style={s.muted}>
+          {/^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+            ? formatVnd(Number(value))
+            : 'Nhập số nguyên, không dùng dấu phân cách'}
+        </Text>
+      )}
     </View>
   );
 }
@@ -403,8 +459,8 @@ export function AccountPicker({
     })),
   ];
   return (
-    <View style={{ gap: 6 }}>
-      <Text style={s.label}>{label}</Text>
+    <View style={s.selectGroup}>
+      <Text style={s.fieldLabel}>{label}</Text>
       {variant === 'dropdown' ? (
         <Dropdown
           label={label}
@@ -444,8 +500,8 @@ export function CategoryPicker({
     })),
   ];
   return (
-    <View style={{ gap: 6 }}>
-      <Text style={s.label}>Danh mục</Text>
+    <View style={s.selectGroup}>
+      <Text style={s.fieldLabel}>Danh mục</Text>
       {variant === 'dropdown' ? (
         <Dropdown
           label="Danh mục"

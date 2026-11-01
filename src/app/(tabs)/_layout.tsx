@@ -35,6 +35,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="loans"
+        options={{
+          title: 'Khoản vay',
+          tabBarIcon: ({ color }) => (
+            <Icon name="people-outline" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="statistics"
         options={{
           title: 'Thống kê',

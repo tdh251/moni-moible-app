@@ -1,5 +1,8 @@
 import { transactionTagIds } from '../tags.ts';
-import { transactionCategoryTags } from '../categories/tags.ts';
+import {
+  itemCategoryIds,
+  transactionCategoryTags,
+} from '../categories/tags.ts';
 import { categoryPath } from '../categories/hierarchy.ts';
 import type { Ledger } from '../../types/finance.ts';
 import { calculateReceipt, parseAdjustments } from '../accounting/receipt.ts';
@@ -19,6 +22,8 @@ export function transactionsCsv(data: Ledger): string {
     expense: 'Chi',
     transfer: 'Chuyển nội bộ',
   };
+  const itemRowTags = new Map<number, string>();
+  const tagNames = new Map((data.tags ?? []).map((tag) => [tag.id, tag.name]));
   const rows: (string | number)[][] = [
     [
       'ID',
@@ -55,12 +60,18 @@ export function transactionsCsv(data: Ledger): string {
       '',
       '',
     ]);
-    if (tags.length) continue;
     const items = data.items.filter((i) => i.transaction_id === t.id);
+    if (tags.length && (!items.length || t.category_split === 1)) continue;
     const receipt = items.length
       ? calculateReceipt(items, parseAdjustments(t.adjustments_json))
       : null;
-    for (const [index, i] of items.entries())
+    for (const [index, i] of items.entries()) {
+      itemRowTags.set(
+        rows.length,
+        transactionTagIds(i)
+          .map((id) => tagNames.get(id) ?? '')
+          .join(' | '),
+      );
       rows.push([
         t.id,
         t.category_split === 1 ? 'Phân bổ danh mục' : 'Mục chi',
@@ -73,10 +84,11 @@ export function transactionsCsv(data: Ledger): string {
         '',
         i.name,
         i.amount,
-        category(i.category_id),
+        itemCategoryIds(i).map(category).join(' | '),
         '',
         receipt!.itemAmounts[index],
       ]);
+    }
     for (const line of receipt?.lines ?? [])
       rows.push([
         t.id,
@@ -95,7 +107,7 @@ export function transactionsCsv(data: Ledger): string {
         '',
       ]);
   }
-  const tagNames = new Map((data.tags ?? []).map((tag) => [tag.id, tag.name]));
+
   const transactionTags = new Map(
     data.transactions.map((t) => [
       t.id,
@@ -118,7 +130,7 @@ export function transactionsCsv(data: Ledger): string {
             : ['Mục chi', 'Phân bổ danh mục', 'Điều chỉnh'].includes(
                   String(row[1]),
                 )
-              ? ''
+              ? (itemRowTags.get(index) ?? '')
               : (transactionTags.get(String(row[0])) ?? ''),
           index === 0
             ? 'Không tính vào số dư'

@@ -63,7 +63,7 @@ export function parseCategoryAllocations(
   return items;
 }
 
-// Categories are overlapping labels for the whole transaction, never allocations.
+// New transactions have exactly one category.
 export function prepareTransactionCategories(
   transactionId: string,
   type: CategoryType,
@@ -72,7 +72,7 @@ export function prepareTransactionCategories(
   categories: Category[],
 ) {
   ensure(transactionId.length > 0, 'Thiếu ID giao dịch.');
-  ensure(drafts.length > 0, 'Chọn ít nhất một danh mục.');
+  ensure(drafts.length === 1, 'Chọn đúng một danh mục.');
   ensure(
     new Set(drafts.map((d) => d.category)).size === drafts.length,
     'Danh mục bị trùng.',
@@ -88,7 +88,7 @@ export function prepareTransactionCategories(
   return {
     category_split: 0 as const,
     category_id: drafts[0].category,
-    category_ids_json: JSON.stringify(drafts.map((d) => d.category)),
+    category_ids_json: '[]',
     items: [] as TransactionItem[],
   };
 }

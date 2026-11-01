@@ -1,5 +1,6 @@
+import { loanCashFlows } from '../../services/loans';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Amount,
@@ -36,6 +37,9 @@ export default function AccountDetail() {
   const transactions = data.transactions.filter(
     (t) => t.source_account_id === id || t.destination_account_id === id,
   );
+  const loanFlows = loanCashFlows(data)
+    .filter((flow) => flow.account_id === id)
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
   const saveOpening = async () => {
     try {
       const amount = parseAmount(opening, true);
@@ -133,6 +137,39 @@ export default function AccountDetail() {
           disabled={busy}
           onPress={() => void archive()}
         />
+      )}
+      {loanFlows.length > 0 && (
+        <AppCard>
+          <Text style={s.heading}>Vay/mượn trong tài khoản</Text>
+          {loanFlows.map((flow) => (
+            <Pressable
+              key={flow.id}
+              accessibilityRole="button"
+              style={{ paddingVertical: 10, gap: 6 }}
+              onPress={() =>
+                router.push({
+                  pathname: '/loans/[id]',
+                  params: {
+                    id: flow.loan_id,
+                  },
+                })
+              }
+            >
+              <Text style={s.text}>{flow.title}</Text>
+              {flow.exclude_from_balance === 1 && (
+                <Text style={s.muted}>Không cộng vào số dư</Text>
+              )}
+              <View style={s.between}>
+                <Text style={s.muted}>
+                  {new Date(flow.occurred_at).toLocaleDateString('vi-VN')}
+                </Text>
+                <Amount
+                  value={flow.source_account_id ? -flow.amount : flow.amount}
+                />
+              </View>
+            </Pressable>
+          ))}
+        </AppCard>
       )}
       <Text style={s.heading}>Lịch sử tài khoản · {transactions.length}</Text>
       <AppCard>

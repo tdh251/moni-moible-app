@@ -1,4 +1,4 @@
-import type { Transaction } from '../../types/finance.ts';
+import type { Transaction, TransactionItem } from '../../types/finance.ts';
 import { ensure, FinanceError } from '../accounting/money.ts';
 
 export function transactionCategoryTags(
@@ -26,4 +26,11 @@ export function transactionCategoryTags(
     'Danh sách nhãn danh mục bị trùng hoặc không hợp lệ.',
   );
   return value;
+}
+
+export function itemCategoryIds(
+  item: Pick<TransactionItem, 'category_id' | 'category_ids_json'>,
+): string[] {
+  const labels = transactionCategoryTags(item);
+  return labels.length ? labels : [item.category_id];
 }

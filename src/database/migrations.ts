@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 16;
 export const migration1 = `
 CREATE TABLE accounts (
  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
@@ -89,4 +89,74 @@ CREATE TABLE tags (
 );
 ALTER TABLE transactions ADD COLUMN tag_ids_json TEXT NOT NULL DEFAULT '[]';
 PRAGMA user_version=8;
+`;
+
+export const migration9 = `
+CREATE TABLE loans (
+ id TEXT PRIMARY KEY NOT NULL,
+ lender TEXT NOT NULL CHECK(length(trim(lender)) BETWEEN 1 AND 100),
+ amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount BETWEEN 1 AND 9007199254740991),
+ account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+ note TEXT NOT NULL DEFAULT '', occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE loan_payments (
+ id TEXT PRIMARY KEY NOT NULL,
+ loan_id TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+ amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount BETWEEN 1 AND 9007199254740991),
+ account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+ occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX loan_payments_loan ON loan_payments(loan_id);
+PRAGMA user_version=9;
+`;
+
+export const migration10 = `
+ALTER TABLE loans ADD COLUMN due_at TEXT;
+ALTER TABLE loans ADD COLUMN costs_json TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version=10;
+`;
+
+export const migration11 = `
+ALTER TABLE loans ADD COLUMN exclude_from_balance INTEGER NOT NULL DEFAULT 0 CHECK(exclude_from_balance IN (0,1));
+PRAGMA user_version=11;
+`;
+
+export const migration12 = `
+ALTER TABLE loan_payments ADD COLUMN fee_amount INTEGER NOT NULL DEFAULT 0 CHECK(typeof(fee_amount)='integer' AND fee_amount BETWEEN 0 AND 9007199254740991);
+PRAGMA user_version=12;
+`;
+
+// Receipt-level category labels can coexist with item-level allocations.
+export const migration13 = `PRAGMA user_version=13;`;
+
+export const migration14 = `
+ALTER TABLE transaction_items ADD COLUMN tag_ids_json TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version=14;
+`;
+
+export const migration15 = `
+ALTER TABLE transaction_items ADD COLUMN category_ids_json TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version=15;
+`;
+
+export const migration16 = `
+UPDATE categories SET parent_id=NULL WHERE parent_id IS NOT NULL;
+UPDATE transactions SET category_id=COALESCE(json_extract(category_ids_json,'$[0]'),category_id,(SELECT category_id FROM transaction_items WHERE transaction_id=transactions.id ORDER BY sort_order,id LIMIT 1))
+WHERE type<>'transfer' AND (category_split=1 OR NOT EXISTS(SELECT 1 FROM transaction_items WHERE transaction_id=transactions.id));
+DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE category_split=1);
+UPDATE transactions SET category_split=0,category_ids_json='[]';
+UPDATE transaction_items SET category_id=COALESCE(json_extract(category_ids_json,'$[0]'),category_id),category_ids_json='[]';
+CREATE TRIGGER transactions_one_category_insert BEFORE INSERT ON transactions
+WHEN NEW.category_split<>0 OR json_type(NEW.category_ids_json)<>'array' OR json_array_length(NEW.category_ids_json)>1 OR (json_array_length(NEW.category_ids_json)=1 AND (NEW.category_id IS NULL OR json_extract(NEW.category_ids_json,'$[0]')<>NEW.category_id))
+BEGIN SELECT RAISE(ABORT,'Only one category per transaction'); END;
+CREATE TRIGGER transactions_one_category_update BEFORE UPDATE ON transactions
+WHEN NEW.category_split<>0 OR json_type(NEW.category_ids_json)<>'array' OR json_array_length(NEW.category_ids_json)>1 OR (json_array_length(NEW.category_ids_json)=1 AND (NEW.category_id IS NULL OR json_extract(NEW.category_ids_json,'$[0]')<>NEW.category_id))
+BEGIN SELECT RAISE(ABORT,'Only one category per transaction'); END;
+CREATE TRIGGER items_one_category_insert BEFORE INSERT ON transaction_items
+WHEN json_type(NEW.category_ids_json)<>'array' OR json_array_length(NEW.category_ids_json)>1 OR (json_array_length(NEW.category_ids_json)=1 AND json_extract(NEW.category_ids_json,'$[0]')<>NEW.category_id)
+BEGIN SELECT RAISE(ABORT,'Only one category per receipt item'); END;
+CREATE TRIGGER items_one_category_update BEFORE UPDATE ON transaction_items
+WHEN json_type(NEW.category_ids_json)<>'array' OR json_array_length(NEW.category_ids_json)>1 OR (json_array_length(NEW.category_ids_json)=1 AND json_extract(NEW.category_ids_json,'$[0]')<>NEW.category_id)
+BEGIN SELECT RAISE(ABORT,'Only one category per receipt item'); END;
+PRAGMA user_version=16;
 `;

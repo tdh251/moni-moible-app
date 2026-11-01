@@ -6,7 +6,7 @@ export function TagBadges({
   transaction,
   tags,
 }: {
-  transaction: Transaction;
+  transaction: Pick<Transaction, 'tag_ids_json'>;
   tags: Tag[];
 }) {
   const ids = transactionTagIds(transaction);

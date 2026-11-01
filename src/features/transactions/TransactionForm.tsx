@@ -1,13 +1,17 @@
+import { FormActions } from '../../components/ui/FormActions';
 import { transactionTagIds } from '../../services/tags';
 import { TagPicker } from '../tags/TagPicker';
-import { transactionCategoryTags } from '../../services/categories/tags';
+import {
+  itemCategoryIds,
+  transactionCategoryTags,
+} from '../../services/categories/tags';
 import { TransactionCategoriesPicker } from './TransactionCategoriesPicker';
 import {
   prepareTransactionCategories,
   type CategoryAllocationDraft,
 } from '../../services/accounting/split';
 import { useState } from 'react';
-import { Text } from 'react-native';
+import { Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
@@ -19,19 +23,17 @@ import {
   Choices,
   ConfirmationDialog,
   Field,
-  PrimaryButton,
+  Icon,
   ScreenContainer,
   SecondaryButton,
   s,
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
 import { BalanceExclusionCheckbox } from './BalanceExclusionCheckbox';
-import { TransactionCategoryPicker } from '../categories/TransactionCategoryPicker';
 import {
   accountBalances,
   ensure,
   parseAmount,
-  safeAdd,
 } from '../../services/accounting/ledger';
 import { typeNames } from '../../utils/format';
 import type { Transaction, TransactionType } from '../../types/finance';
@@ -47,6 +49,8 @@ import {
 } from './ReceiptAdjustments';
 
 interface ItemDraft {
+  categoryIds: string[];
+  tagIds: string[];
   id: string;
   name: string;
   amount: string;
@@ -108,6 +112,8 @@ export function TransactionForm({
           category,
           amount: '',
         }));
+      if (existing && storedItems.length && existing.category_split !== 1)
+        return [];
       if (existing?.category_split === 1)
         return storedItems.map((i) => ({
           id: i.id,
@@ -135,8 +141,18 @@ export function TransactionForm({
       name: i.name,
       amount: String(i.amount),
       category: i.category_id,
+      categoryIds: itemCategoryIds(i),
+      tagIds: transactionTagIds(i),
     })),
   );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const activeItem =
+    items.find((item) => item.id === selectedItemId) ?? items[0];
+  const removeItem = (id: string) => {
+    const index = items.findIndex((item) => item.id === id);
+    setItems((current) => current.filter((item) => item.id !== id));
+    setSelectedItemId(items[index + 1]?.id ?? items[index - 1]?.id ?? null);
+  };
   const categories = data.categories.filter(
     (c) =>
       !c.is_archived && c.type === (type === 'income' ? 'income' : 'expense'),
@@ -150,34 +166,27 @@ export function TransactionForm({
   const switchMode = async (next: 'categories' | 'items') => {
     if (next === mode || busy) return;
     if (itemized) {
+      // Incomplete receipt drafts can be left without validating or discarding them.
+      if (!preview.summary) {
+        setMode(next);
+        return;
+      }
       try {
-        ensure(
-          items.length > 0,
-          'Thêm ít nhất một mục chi trước khi chuyển chế độ.',
-        );
-        const receipt = calculateReceipt(
-          items.map((i) => ({ amount: parseAmount(i.amount) })),
-          parseAdjustmentDrafts(adjustments),
-        );
+        const receipt = preview.summary;
         if (
           !(await ConfirmationDialog(
             'Chuyển về ghi giao dịch?',
-            'Tổng sau điều chỉnh và các danh mục được giữ lại. Các dòng hóa đơn sẽ không được lưu trong chế độ này. Bản nháp hóa đơn vẫn được giữ tại màn hình này.',
+            'Tổng sau điều chỉnh được giữ lại và dùng danh mục của mục chi đầu tiên. Các dòng hóa đơn sẽ không được lưu trong chế độ này. Bản nháp hóa đơn vẫn được giữ tại màn hình này.',
           ))
         )
           return;
-        const groups = new Map<string, CategoryAllocationDraft>();
-        items.forEach((item, index) => {
-          const old = groups.get(item.category);
-          groups.set(item.category, {
-            id: old?.id ?? item.id,
-            category: item.category,
-            amount: String(
-              safeAdd(Number(old?.amount ?? 0), receipt.itemAmounts[index]),
-            ),
-          });
-        });
-        setAllocations([...groups.values()]);
+        const category = items[0].categoryIds[0];
+        setAllocations(
+          category ? [{ id: items[0].id, category, amount: '' }] : [],
+        );
+        setTagIds([
+          ...new Set([...tagIds, ...items.flatMap((item) => item.tagIds)]),
+        ]);
         setAmount(String(receipt.total));
       } catch (e) {
         showError(e);
@@ -198,6 +207,8 @@ export function TransactionForm({
             name: title,
             amount,
             category: selected.category_id,
+            categoryIds: [selected.category_id],
+            tagIds: [],
           },
         ]);
       } catch {
@@ -207,6 +218,8 @@ export function TransactionForm({
             name: title,
             amount,
             category: allocations[0]?.category ?? categories[0]?.id ?? '',
+            categoryIds: [allocations[0]?.category ?? categories[0]?.id ?? ''],
+            tagIds: [],
           },
         ]);
       }
@@ -240,7 +253,9 @@ export function TransactionForm({
               transaction_id: id,
               name: i.name.trim(),
               amount: parseAmount(i.amount),
-              category_id: activeCategory(i.category),
+              category_id: activeCategory(i.categoryIds[0] ?? ''),
+              category_ids_json: '[]',
+              tag_ids_json: JSON.stringify(i.tagIds),
               sort_order: index,
             }))
           : [];
@@ -253,7 +268,7 @@ export function TransactionForm({
         type,
         category_split: selected?.category_split ?? (0 as const),
         tag_ids_json: JSON.stringify(tagIds),
-        category_ids_json: selected?.category_ids_json ?? '[]',
+        category_ids_json: '[]',
         title: title.trim(),
         amount: total,
         exclude_from_balance: excludeFromBalance ? (1 as const) : (0 as const),
@@ -314,21 +329,8 @@ export function TransactionForm({
           value={title}
           onChangeText={setTitle}
           maxLength={200}
-          placeholder={
-            type === 'expense'
-              ? 'Ví dụ: Đi siêu thị'
-              : type === 'income'
-                ? 'Ví dụ: Lương tháng này'
-                : 'Chuyển nội bộ'
-          }
+          placeholder="Trống"
         />
-        {type !== 'transfer' && (
-          <Text style={s.muted}>
-            {itemized
-              ? 'Để trống: dùng tên danh mục có tổng tiền lớn nhất trong giao dịch.'
-              : 'Để trống: dùng tên danh mục đầu tiên đã chọn.'}
-          </Text>
-        )}
         {type === 'expense' && (
           <Choices
             value={mode}
@@ -339,9 +341,8 @@ export function TransactionForm({
             onChange={(next) => void switchMode(next)}
           />
         )}
-        {!(type === 'expense' && itemized) && (
-          <AmountInput value={amount} onChangeText={setAmount} />
-        )}
+      </AppCard>
+      <AppCard>
         {type !== 'income' && (
           <>
             <AccountPicker
@@ -349,7 +350,7 @@ export function TransactionForm({
               accounts={accounts}
               value={source}
               onChange={setSource}
-              label="Tài khoản nguồn"
+              label="Tài khoản"
             />
             <Text style={s.muted}>
               Số dư hiện tại:{' '}
@@ -370,57 +371,160 @@ export function TransactionForm({
             label="Tài khoản nhận"
           />
         )}
-        {type !== 'transfer' && !itemized && (
+        <View style={{ gap: 0 }}>
+          {type === 'expense' && itemized ? (
+            <View style={s.fieldGroup}>
+              <Text style={s.fieldLabel}>Số tiền (VND)</Text>
+              {preview.summary ? (
+                <Amount value={preview.summary.total} />
+              ) : (
+                <Text style={s.muted}>Thêm các mục hóa đơn để tính tổng.</Text>
+              )}
+            </View>
+          ) : (
+            <AmountInput
+              value={amount}
+              onChangeText={setAmount}
+              showHint={false}
+            />
+          )}
+          <BalanceExclusionCheckbox
+            value={excludeFromBalance}
+            onChange={setExcludeFromBalance}
+            disabled={busy}
+            embedded
+          />
+        </View>
+      </AppCard>
+      {type !== 'transfer' && !itemized && (
+        <AppCard>
           <TransactionCategoriesPicker
             type={type}
             value={allocations}
             onChange={setAllocations}
           />
-        )}
-      </AppCard>
+        </AppCard>
+      )}
       {type === 'expense' && itemized && (
         <>
           <Text style={s.heading}>Các mục trong hóa đơn</Text>
-          {items.map((item, index) => (
-            <AppCard key={item.id}>
-              <Field
-                label={`Tên mục ${index + 1}`}
-                value={item.name}
-                onChangeText={(name) => updateItem(item.id, { name })}
-                maxLength={200}
-              />
-              <AmountInput
-                value={item.amount}
-                onChangeText={(value) => updateItem(item.id, { amount: value })}
-              />
-              <TransactionCategoryPicker
-                type="expense"
-                value={activeCategory(item.category)}
-                onChange={(value) => updateItem(item.id, { category: value })}
-              />
-              <SecondaryButton
-                label="Bỏ mục này"
-                danger
-                onPress={() =>
-                  setItems((list) => list.filter((i) => i.id !== item.id))
-                }
-              />
-            </AppCard>
-          ))}
+          {items.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {items.map((item, index) => (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="tab"
+                  accessibilityLabel={item.name.trim() || `Mục ${index + 1}`}
+                  accessibilityState={{
+                    selected: item.id === activeItem?.id,
+                    disabled: busy,
+                  }}
+                  disabled={busy}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setSelectedItemId(item.id);
+                  }}
+                  style={[
+                    s.pill,
+                    {
+                      minHeight: 44,
+                      minWidth: 80,
+                      maxWidth: 180,
+                      justifyContent: 'center',
+                    },
+                    item.id === activeItem?.id && s.selected,
+                  ]}
+                >
+                  <Text style={s.text} numberOfLines={1}>
+                    {item.name.trim() || `Mục ${index + 1}`}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+          {items.map((item, index) =>
+            item.id !== activeItem?.id ? null : (
+              <AppCard key={item.id}>
+                <View style={s.between}>
+                  <Text style={[s.heading, { flex: 1 }]} numberOfLines={2}>
+                    {item.name.trim() || `Mục ${index + 1}`}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Bỏ mục ${index + 1}${item.name ? `: ${item.name}` : ''}`}
+                    disabled={busy}
+                    accessibilityState={{ disabled: busy }}
+                    onPress={() => removeItem(item.id)}
+                    style={({ pressed }) => ({
+                      minWidth: 44,
+                      minHeight: 44,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: busy ? 0.45 : pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Icon name="close-outline" size={24} />
+                  </Pressable>
+                </View>
+                <Field
+                  label="Tên mục"
+                  value={item.name}
+                  onChangeText={(name) => updateItem(item.id, { name })}
+                  maxLength={200}
+                />
+                <AmountInput
+                  showHint={false}
+                  value={item.amount}
+                  onChangeText={(value) =>
+                    updateItem(item.id, { amount: value })
+                  }
+                />
+                <TransactionCategoriesPicker
+                  type="expense"
+                  value={item.categoryIds.map((category) => ({
+                    id: category,
+                    category,
+                    amount: '',
+                  }))}
+                  onChange={(rows) =>
+                    updateItem(item.id, {
+                      category: rows[0]?.category ?? '',
+                      categoryIds: rows.map((row) => row.category),
+                    })
+                  }
+                />
+                <TagPicker
+                  label="Tags mục chi"
+                  value={item.tagIds}
+                  onChange={(tagIds) => updateItem(item.id, { tagIds })}
+                />
+              </AppCard>
+            ),
+          )}
           <SecondaryButton
             label="Thêm mục chi"
             icon="add-outline"
-            onPress={() =>
+            disabled={busy}
+            onPress={() => {
+              const id = randomUUID();
               setItems((list) => [
                 ...list,
                 {
-                  id: randomUUID(),
+                  id,
                   name: '',
                   amount: '',
                   category: categories[0]?.id ?? '',
+                  categoryIds: categories[0] ? [categories[0].id] : [],
+                  tagIds: [],
                 },
-              ])
-            }
+              ]);
+              setSelectedItemId(id);
+            }}
           />
           <ReceiptAdjustments
             drafts={adjustments}
@@ -431,28 +535,31 @@ export function TransactionForm({
         </>
       )}
       <AppCard>
-        <TagPicker value={tagIds} onChange={setTagIds} />
+        <TagPicker
+          label={type === 'expense' && itemized ? 'Tags hóa đơn' : undefined}
+          value={tagIds}
+          onChange={setTagIds}
+        />
       </AppCard>
-      <BalanceExclusionCheckbox
-        value={excludeFromBalance}
-        onChange={setExcludeFromBalance}
-        disabled={busy}
-      />
       <AppCard>
-        <Text style={s.label}>Ngày và giờ · múi giờ thiết bị</Text>
-        <SecondaryButton
-          label={date.toLocaleDateString('vi-VN')}
-          icon="calendar-outline"
-          onPress={() => setDateMode('date')}
-        />
-        <SecondaryButton
-          label={date.toLocaleTimeString('vi-VN', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          icon="time-outline"
-          onPress={() => setDateMode('time')}
-        />
+        <View style={s.selectGroup}>
+          <Text style={s.fieldLabel}>Ngày và giờ · múi giờ thiết bị</Text>
+          <SecondaryButton
+            label={date.toLocaleDateString('vi-VN')}
+            icon="calendar-outline"
+            disabled={busy}
+            onPress={() => setDateMode('date')}
+          />
+          <SecondaryButton
+            label={date.toLocaleTimeString('vi-VN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            icon="time-outline"
+            disabled={busy}
+            onPress={() => setDateMode('time')}
+          />
+        </View>
         <Field
           label="Ghi chú (không bắt buộc)"
           multiline
@@ -472,10 +579,10 @@ export function TransactionForm({
           }}
         />
       )}
-      <PrimaryButton
-        label={busy ? 'Đang lưu…' : 'Lưu giao dịch'}
-        disabled={busy}
-        onPress={() => void save()}
+      <FormActions
+        busy={busy}
+        onCancel={() => router.back()}
+        onSave={() => void save()}
       />
     </ScreenContainer>
   );

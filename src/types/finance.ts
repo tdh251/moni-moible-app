@@ -53,6 +53,8 @@ export type ReceiptAdjustment = ReceiptAdjustmentBase &
     | { kind: 'fixed'; amount_vnd: number; rate_bps?: never }
   );
 export interface TransactionItem {
+  category_ids_json?: string;
+  tag_ids_json?: string;
   id: string;
   transaction_id: string;
   name: string;
@@ -60,7 +62,35 @@ export interface TransactionItem {
   category_id: string;
   sort_order: number;
 }
+export interface LoanCost {
+  id: string;
+  name: string;
+  amount: number;
+}
+export interface Loan {
+  exclude_from_balance?: 0 | 1;
+  due_at?: string | null;
+  costs_json?: string;
+  id: string;
+  lender: string;
+  amount: number;
+  account_id: string;
+  note: string;
+  occurred_at: string;
+  created_at: string;
+}
+export interface LoanPayment {
+  fee_amount?: number;
+  id: string;
+  loan_id: string;
+  amount: number;
+  account_id: string;
+  occurred_at: string;
+  created_at: string;
+}
 export interface Ledger {
+  loans?: Loan[];
+  loanPayments?: LoanPayment[];
   tags?: Tag[];
   accounts: Account[];
   categories: Category[];
