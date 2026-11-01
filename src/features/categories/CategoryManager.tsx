@@ -1,11 +1,5 @@
 import { CategoryAppearancePicker } from './CategoryAppearancePicker';
 import { transactionCategoryTags } from '../../services/categories/tags';
-import { Dropdown } from '../../components/ui/Dropdown';
-import {
-  categoryDescendants,
-  categoryPath,
-  categoryTree,
-} from '../../services/categories/hierarchy';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { randomUUID } from 'expo-crypto';
@@ -37,27 +31,17 @@ export function CategoryManager({
   const list = data.categories.filter((c) => c.type === type);
   const visible = onSelect ? list.filter((c) => !c.is_archived) : list;
   const exists = draft && data.categories.some((c) => c.id === draft.id);
-  const create = (parent?: Category) =>
+  const create = () =>
     setDraft({
       id: randomUUID(),
       name: '',
       type,
-      parent_id: parent?.id ?? null,
-      icon:
-        parent?.icon ??
-        (type === 'expense' ? 'basket-outline' : 'wallet-outline'),
-      color: parent?.color ?? colors.primary,
+      parent_id: null,
+      icon: type === 'expense' ? 'basket-outline' : 'wallet-outline',
+      color: colors.primary,
       sort_order: 0,
       is_archived: 0,
     });
-  const descendants = draft
-    ? categoryDescendants(list, [draft.id])
-    : new Set<string>();
-  const parentOptions = categoryTree(list).filter(
-    ({ category }) =>
-      (!category.is_archived || category.id === draft?.parent_id) &&
-      !descendants.has(category.id),
-  );
   const save = async () => {
     if (draft && (await mutate((repo) => repo.saveCategory(draft)))) {
       setDraft(null);
@@ -69,7 +53,7 @@ export function CategoryManager({
     if (
       await ConfirmationDialog(
         draft.is_archived ? 'Khôi phục danh mục?' : 'Lưu trữ danh mục?',
-        'Lưu trữ sẽ ẩn cả các danh mục con khỏi danh sách chọn. Khôi phục danh mục cha trước, rồi khôi phục các danh mục con cần dùng. Lịch sử và số liệu cũ được giữ nguyên.',
+        'Lưu trữ sẽ ẩn danh mục khỏi danh sách chọn. Lịch sử và số liệu cũ được giữ nguyên.',
       )
     ) {
       if (
@@ -85,7 +69,6 @@ export function CategoryManager({
   };
   const remove = async () => {
     if (!draft || busy) return;
-    const hasChildren = data.categories.some((c) => c.parent_id === draft.id);
     const used =
       data.transactions.some(
         (t) =>
@@ -95,11 +78,9 @@ export function CategoryManager({
     if (
       await ConfirmationDialog(
         'Xóa danh mục?',
-        hasChildren
-          ? 'Danh mục này có cấp con. Hãy đổi danh mục cha của các cấp con trước khi xóa, hoặc dùng Lưu trữ để ẩn cả nhánh.'
-          : used
-            ? 'Danh mục đã có giao dịch sẽ được lưu trữ và ẩn khỏi danh sách chọn. Lịch sử và số liệu cũ được giữ nguyên.'
-            : `Xóa danh mục “${draft.name}”?`,
+        used
+          ? 'Danh mục đã có giao dịch sẽ được lưu trữ và ẩn khỏi danh sách chọn. Lịch sử và số liệu cũ được giữ nguyên.'
+          : `Xóa danh mục “${draft.name}”?`,
         true,
       )
     ) {
@@ -125,26 +106,6 @@ export function CategoryManager({
           maxLength={100}
           editable={!busy}
         />
-        <Dropdown
-          label="Danh mục cha"
-          placeholder="Không có · Danh mục gốc"
-          value={draft.parent_id ?? ''}
-          options={[
-            { value: '', label: 'Không có · Danh mục gốc' },
-            ...parentOptions.map(({ category }) => ({
-              value: category.id,
-              label: categoryPath(list, category.id),
-              icon: category.icon,
-            })),
-          ]}
-          onChange={(parent_id) => {
-            if (!busy) setDraft({ ...draft, parent_id: parent_id || null });
-          }}
-        />
-        <Text style={s.muted}>
-          Chọn danh mục cha để tạo cấp con. Có thể chọn cả danh mục cha và con
-          khi ghi giao dịch.
-        </Text>
         <CategoryAppearancePicker
           key={draft.id}
           name={draft.name}
@@ -187,8 +148,8 @@ export function CategoryManager({
   return (
     <View style={{ flex: 1, gap: 12 }}>
       <Text style={s.muted}>
-        Dùng mũi tên để sắp xếp trong cùng cấp. Chạm mũi tên cạnh tên để thu gọn
-        các cấp con.
+        Giữ danh mục khoảng 0,4 giây rồi kéo để đổi thứ tự. Viền xanh cho biết
+        danh mục đang được kéo.
       </Text>
       <CategoryList
         categories={visible}
@@ -196,7 +157,6 @@ export function CategoryManager({
         value={value}
         onSelect={onSelect}
         onEdit={(c) => setDraft({ ...c })}
-        onAddChild={create}
         onReorder={(ids) =>
           mutate((repo) =>
             repo.reorderCategories(

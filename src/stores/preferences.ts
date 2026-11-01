@@ -7,6 +7,7 @@ export const initialFilters = (): Filters => ({
   category: '',
   accounts: [],
   categories: [],
+  tags: [],
   minAmount: undefined,
   maxAmount: undefined,
   type: '',

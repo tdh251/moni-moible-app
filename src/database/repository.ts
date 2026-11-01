@@ -1,7 +1,13 @@
+import {
+  tagNameKey,
+  transactionTagIds,
+  validateTags,
+} from '../services/tags.ts';
 import type {
   Account,
   Category,
   CategoryType,
+  Tag,
   Ledger,
   Snapshot,
   Transaction,
@@ -18,10 +24,6 @@ import {
   validateLedger,
 } from '../services/accounting/ledger.ts';
 import { validateBackup, type Backup } from '../services/backup/validation.ts';
-import {
-  categoryDescendants,
-  categoryHierarchyError,
-} from '../services/categories/hierarchy.ts';
 import { transactionCategoryTags } from '../services/categories/tags.ts';
 import { defaultCategories } from './defaults.ts';
 import { resolveTransactionTitle } from '../services/accounting/title.ts';
@@ -32,6 +34,8 @@ import {
   migration4,
   migration5,
   migration6,
+  migration7,
+  migration8,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -56,6 +60,8 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 4) await db.execAsync(migration4);
   if (row.user_version < 5) await db.execAsync(migration5);
   if (row.user_version < 6) await db.execAsync(migration6);
+  if (row.user_version < 7) await db.execAsync(migration7);
+  if (row.user_version < 8) await db.execAsync(migration8);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
@@ -64,6 +70,9 @@ export async function readSnapshot(db: Connection): Promise<Snapshot> {
   );
   const categories = await db.getAllAsync<Category>(
     'SELECT * FROM categories ORDER BY sort_order,name',
+  );
+  const tags = await db.getAllAsync<Tag>(
+    'SELECT id,name,color,is_archived FROM tags ORDER BY name',
   );
   const transactions = await db.getAllAsync<Transaction>(
     'SELECT * FROM transactions ORDER BY occurred_at DESC,created_at DESC,id DESC',
@@ -76,6 +85,7 @@ export async function readSnapshot(db: Connection): Promise<Snapshot> {
   );
   return {
     accounts,
+    tags,
     categories,
     transactions,
     items,
@@ -109,7 +119,7 @@ async function insertCategory(db: Connection, c: Category) {
 }
 async function insertTransaction(db: Connection, t: Transaction) {
   await db.runAsync(
-    'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at,adjustments_json,exclude_from_balance,category_split,category_ids_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at,adjustments_json,exclude_from_balance,category_split,category_ids_json,tag_ids_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     t.id,
     t.type,
     t.title,
@@ -125,6 +135,7 @@ async function insertTransaction(db: Connection, t: Transaction) {
     t.exclude_from_balance ?? 0,
     t.category_split ?? 0,
     t.category_ids_json ?? '[]',
+    t.tag_ids_json ?? '[]',
   );
 }
 async function insertItem(db: Connection, i: TransactionItem) {
@@ -140,7 +151,7 @@ async function insertItem(db: Connection, i: TransactionItem) {
 }
 async function clear(db: Connection) {
   await db.execAsync(
-    'DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM settings;',
+    'DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
   );
 }
 export class FinanceRepository {
@@ -254,6 +265,45 @@ export class FinanceRepository {
       );
     });
   }
+  saveTag(tag: Tag) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      const saved = {
+        ...tag,
+        name: tag.name.normalize('NFC').trim().replace(/\s+/g, ' '),
+      };
+      validateTags([
+        ...(data.tags ?? []).filter((t) => t.id !== tag.id),
+        saved,
+      ]);
+      await db.runAsync(
+        'INSERT INTO tags (id,name,name_key,color,is_archived) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_key=excluded.name_key,color=excluded.color,is_archived=excluded.is_archived',
+        saved.id,
+        saved.name,
+        tagNameKey(saved.name),
+        saved.color,
+        saved.is_archived,
+      );
+    });
+  }
+  deleteTag(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        (data.tags ?? []).some((t) => t.id === id),
+        'Tag không còn tồn tại.',
+      );
+      const used = data.transactions.some((t) =>
+        transactionTagIds(t).includes(id),
+      );
+      await db.runAsync(
+        used
+          ? 'UPDATE tags SET is_archived=1 WHERE id=?'
+          : 'DELETE FROM tags WHERE id=?',
+        id,
+      );
+    });
+  }
   saveCategory(c: Category) {
     return this.write(async (db) => {
       ensure(
@@ -264,21 +314,7 @@ export class FinanceRepository {
       );
       const categories = (await readSnapshot(db)).categories;
       const old = categories.find((x) => x.id === c.id);
-      const subtree = categoryDescendants(categories, [c.id]);
-      const next = categories
-        .filter((x) => x.id !== c.id)
-        .map((x) =>
-          c.is_archived && subtree.has(x.id) ? { ...x, is_archived: 1 } : x,
-        );
-      const error = categoryHierarchyError([...next, c]);
-      ensure(!error, error ?? 'Cấu trúc danh mục không hợp lệ.');
-      if (c.is_archived)
-        for (const id of subtree) {
-          await db.runAsync(
-            'UPDATE categories SET is_archived=1 WHERE id=?',
-            id,
-          );
-        }
+      ensure(c.parent_id == null, 'Danh mục chỉ hỗ trợ một cấp.');
       ensure(!old || old.type === c.type, 'Không thể đổi loại danh mục.');
       if (old)
         await db.runAsync(
@@ -329,10 +365,6 @@ export class FinanceRepository {
       ensure(
         data.categories.some((c) => c.id === id),
         'Danh mục không còn tồn tại.',
-      );
-      ensure(
-        !data.categories.some((c) => c.parent_id === id),
-        'Hãy chuyển các danh mục con sang danh mục cha khác trước khi xóa.',
       );
       const used =
         data.transactions.some(
@@ -399,7 +431,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 7,
+      version: 8,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));
@@ -408,6 +440,15 @@ export class FinanceRepository {
     const backup = validateBackup(value);
     return this.write(async (db) => {
       await clear(db);
+      for (const tag of backup.data.tags ?? [])
+        await db.runAsync(
+          'INSERT INTO tags (id,name,name_key,color,is_archived) VALUES (?,?,?,?,?)',
+          tag.id,
+          tag.name,
+          tagNameKey(tag.name),
+          tag.color,
+          tag.is_archived,
+        );
       for (const a of backup.data.accounts) await insertAccount(db, a);
       for (const c of backup.data.categories) await insertCategory(db, c);
       for (const t of backup.data.transactions) await insertTransaction(db, t);
@@ -444,5 +485,11 @@ export function makeAccount(
   };
 }
 export function emptyLedger(): Ledger {
-  return { accounts: [], categories: [], transactions: [], items: [] };
+  return {
+    accounts: [],
+    tags: [],
+    categories: [],
+    transactions: [],
+    items: [],
+  };
 }

@@ -1,3 +1,4 @@
+import { transactionTagIds } from '../tags.ts';
 import { transactionCategoryTags } from '../categories/tags.ts';
 import { categoryPath } from '../categories/hierarchy.ts';
 import type { Ledger } from '../../types/finance.ts';
@@ -94,6 +95,15 @@ export function transactionsCsv(data: Ledger): string {
         '',
       ]);
   }
+  const tagNames = new Map((data.tags ?? []).map((tag) => [tag.id, tag.name]));
+  const transactionTags = new Map(
+    data.transactions.map((t) => [
+      t.id,
+      transactionTagIds(t)
+        .map((id) => tagNames.get(id) ?? '')
+        .join(' | '),
+    ]),
+  );
   const excluded = new Map(
     data.transactions.map((t) => [t.id, t.exclude_from_balance === 1]),
   );
@@ -103,6 +113,13 @@ export function transactionsCsv(data: Ledger): string {
       .map((row, index) =>
         [
           ...row,
+          index === 0
+            ? 'Tag'
+            : ['Mục chi', 'Phân bổ danh mục', 'Điều chỉnh'].includes(
+                  String(row[1]),
+                )
+              ? ''
+              : (transactionTags.get(String(row[0])) ?? ''),
           index === 0
             ? 'Không tính vào số dư'
             : row[1] === 'Mục chi' ||

@@ -1,7 +1,7 @@
+import { TagPicker } from '../../features/tags/TagPicker';
 import { categoryReportRows } from '../../services/accounting/category-report';
-import { categoryPath } from '../../services/categories/hierarchy';
 import { useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   AccountPicker,
   Amount,
@@ -10,7 +10,6 @@ import {
   EmptyState,
   Icon,
   ScreenContainer,
-  SecondaryButton,
   s,
 } from '../../components/ui';
 import { PeriodFilter } from '../../components/PeriodFilter';
@@ -29,12 +28,10 @@ export default function Statistics() {
   const set = usePreferences((v) => v.setFilters);
   const [mode, setMode] = useState<CategoryType>('expense');
   const summary = useMemo(() => statistics(data, filters), [data, filters]);
-  const [parentId, setParentId] = useState<string | null>(null);
-  const parent = data.categories.find((c) => c.id === parentId);
   const visibleRows = categoryReportRows(
     data.categories.filter((c) => c.type === mode),
     summary.categories,
-    parentId,
+    null,
     summary.categoryTotals,
   );
   const total = summary.hasCategoryTags
@@ -57,6 +54,11 @@ export default function Statistics() {
           accounts={data.accounts}
           value={filters.account}
           onChange={(account) => set('reportFilters', { account })}
+        />
+        <TagPicker
+          filter
+          value={filters.tags ?? []}
+          onChange={(tags) => set('reportFilters', { tags })}
         />
       </AppCard>
       <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -98,26 +100,16 @@ export default function Statistics() {
         <Text style={s.heading}>Giao dịch theo danh mục</Text>
         <Choices
           value={mode}
-          onChange={(next) => {
-            setMode(next);
-            setParentId(null);
-          }}
+          onChange={setMode}
           options={[
             { value: 'expense', label: 'Chi tiêu' },
             { value: 'income', label: 'Thu nhập' },
           ]}
         />
-        {parent && (
-          <SecondaryButton
-            label={`Quay lại · ${categoryPath(data.categories, parent.id)}`}
-            icon="arrow-back-outline"
-            onPress={() => setParentId(parent.parent_id ?? null)}
-          />
-        )}
         <Text style={s.muted}>
           {summary.hasCategoryTags
             ? 'Mỗi danh mục tính toàn bộ giao dịch được gắn nhãn. Các danh mục có thể trùng giao dịch nên không cộng các dòng với nhau. Tỷ lệ so với tổng thu hoặc chi trong kỳ.'
-            : 'Tổng danh mục cha gồm các cấp con. Chạm danh mục để xem chi tiết.'}
+            : 'Số tiền giao dịch được tổng hợp theo từng danh mục.'}
         </Text>
         {visibleRows.length > 0 && total > 0 ? (
           <>
@@ -125,17 +117,7 @@ export default function Statistics() {
               <DonutChart rows={visibleRows} total={total} />
             )}
             {visibleRows.map((row) => (
-              <Pressable
-                key={row.id}
-                style={[s.between, { minHeight: 48 }]}
-                accessibilityRole="button"
-                accessibilityLabel={`Chi tiết ${row.name}`}
-                disabled={
-                  row.id === parentId ||
-                  !data.categories.some((c) => c.parent_id === row.id)
-                }
-                onPress={() => setParentId(row.id)}
-              >
+              <View key={row.id} style={[s.between, { minHeight: 48 }]}>
                 <View style={[s.row, { flex: 1 }]}>
                   <Icon name={row.icon} color={row.color} />
                   <View style={{ flex: 1 }}>
@@ -149,13 +131,68 @@ export default function Statistics() {
                   </View>
                 </View>
                 <Amount value={row.amount} />
-              </Pressable>
+              </View>
             ))}
           </>
         ) : (
           <EmptyState
             title={mode === 'expense' ? 'Chưa có chi tiêu' : 'Chưa có thu nhập'}
             description="Các khoản trong kỳ sẽ xuất hiện ở đây."
+          />
+        )}
+      </AppCard>
+      <AppCard>
+        <Text style={s.heading}>Thống kê theo tag</Text>
+        <Text style={s.muted}>
+          Một giao dịch có thể có nhiều tag. Mỗi tag tính toàn bộ thu/chi của
+          giao dịch đó; không cộng các dòng tag với nhau. Chuyển nội bộ không
+          tính vào thu/chi.
+        </Text>
+        {Object.keys(summary.tags).length ? (
+          (data.tags ?? [])
+            .filter((tag) => summary.tags[tag.id])
+            .map((tag) => {
+              const row = summary.tags[tag.id];
+              return (
+                <View
+                  key={tag.id}
+                  style={{
+                    gap: 8,
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <View style={s.row}>
+                    <Icon name="pricetag-outline" color={tag.color} />
+                    <Text style={[s.text, { flex: 1 }]}>
+                      {tag.name}
+                      {tag.is_archived ? ' · lưu trữ' : ''}
+                    </Text>
+                  </View>
+                  <Text style={s.muted}>{row.count} giao dịch thu/chi</Text>
+                  <View style={s.between}>
+                    <Text style={s.text}>Thu nhập</Text>
+                    <Amount
+                      value={row.income}
+                      style={{ color: colors.income }}
+                    />
+                  </View>
+                  <View style={s.between}>
+                    <Text style={s.text}>Chi tiêu</Text>
+                    <Amount
+                      value={row.expense}
+                      style={{ color: colors.expense }}
+                    />
+                  </View>
+                </View>
+              );
+            })
+        ) : (
+          <EmptyState
+            title="Chưa có thu chi gắn tag"
+            description="Gắn tag khi ghi giao dịch, hoặc chọn kỳ và bộ lọc khác."
+            icon="pricetags-outline"
           />
         )}
       </AppCard>

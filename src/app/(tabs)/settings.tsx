@@ -110,14 +110,20 @@ export default function Settings() {
         </View>
       </AppCard>
       <PrimaryButton
-        label="Quản lý tài khoản"
+        label="Tài khoản"
         icon="card-outline"
         onPress={() => router.push('/accounts')}
       />
       <SecondaryButton
-        label="Quản lý danh mục"
-        icon="pricetags-outline"
+        label="Danh mục"
+        icon="grid-outline"
         onPress={() => router.push('/categories')}
+      />
+      <SecondaryButton
+        label="Tags"
+        icon="pricetag-outline"
+        disabled={disabled}
+        onPress={() => router.push('/tags')}
       />
       <Text style={s.heading}>Hiển thị</Text>
       <AppCard>
@@ -168,9 +174,10 @@ export default function Settings() {
       <Text style={s.heading}>Sao lưu & khôi phục</Text>
       <AppCard>
         <Text style={s.muted}>
-          JSON {APP_NAME} phiên bản 7, gồm toàn bộ tài khoản, danh mục và giao
-          dịch, gồm điều chỉnh hóa đơn. Vẫn đọc được bản sao lưu phiên bản 1, 2
-          3, 4, 5 và 6. Việc khôi phục được kiểm tra trước và ghi nguyên tử.
+          JSON {APP_NAME} phiên bản 8, gồm toàn bộ tài khoản, danh mục, tag và
+          giao dịch, gồm điều chỉnh hóa đơn. Vẫn đọc được bản sao lưu phiên bản
+          1, 2 3, 4, 5, 6 và 7. Việc khôi phục được kiểm tra trước và ghi nguyên
+          tử.
         </Text>
         <SecondaryButton
           label="Xuất bản sao lưu"
@@ -219,7 +226,7 @@ export default function Settings() {
               if (
                 await ConfirmationDialog(
                   'Khôi phục danh mục mặc định?',
-                  'Tên, màu và biểu tượng danh mục mặc định sẽ được khôi phục, các danh mục mặc định trở về cấp gốc. Danh mục tùy chỉnh và lịch sử vẫn được giữ.',
+                  'Tên, màu và biểu tượng danh mục mặc định sẽ được khôi phục. Danh mục tùy chỉnh và lịch sử vẫn được giữ.',
                 )
               )
                 await mutate((repo) => repo.restoreDefaults());

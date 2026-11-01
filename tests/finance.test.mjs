@@ -1,3 +1,8 @@
+import {
+  categoryDropPosition,
+  reorderCategoryIds,
+} from '../src/features/categories/reorder.ts';
+import { tagNameKey, transactionTagIds } from '../src/services/tags.ts';
 import { transactionCategoryTags } from '../src/services/categories/tags.ts';
 import {
   parseCategoryAllocations,
@@ -5,11 +10,7 @@ import {
   splitEvenly,
 } from '../src/services/accounting/split.ts';
 import { categoryReportRows } from '../src/services/accounting/category-report.ts';
-import {
-  categoryPath,
-  categoryTree,
-  categoryDescendants,
-} from '../src/services/categories/hierarchy.ts';
+import { categoryPath } from '../src/services/categories/hierarchy.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -192,7 +193,7 @@ test('deleting categories removes unused ones and archives transaction or receip
 test('fresh migrations are repeatable, FK enabled, cash uniqueness and constraints work', async (t) => {
   const { repo, db } = await fixture(t);
   await repo.initialize();
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 8);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.throws(() =>
     db
@@ -762,7 +763,7 @@ test('future schema versions and unsafe aggregate balances are rejected', async 
   const { repo, db } = await fixture(t);
   db.exec('PRAGMA user_version=99');
   await assert.rejects(repo.initialize(), /mới hơn/);
-  db.exec('PRAGMA user_version=6');
+  db.exec('PRAGMA user_version=8');
   const backup = await repo.backup();
   backup.data.accounts[0].opening_balance = Number.MAX_SAFE_INTEGER;
   assert.throws(() => validateBackup(backup), /an toàn/);
@@ -986,7 +987,7 @@ test('current backup and CSV retain custom fields, and malformed adjustments can
   const d = adjustedDraft();
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 7);
+  assert.equal(backup.version, 8);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1057,7 +1058,7 @@ test('migration v1 to v2 preserves existing accounts, transactions and onboardin
   assert.equal(data.transactions[0].id, 'old-tx');
   assert.equal(data.transactions[0].adjustments_json, '[]');
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 8);
 });
 
 test('fixed VND parser accepts signed integers and rejects unsafe or fractional input', () => {
@@ -1214,7 +1215,7 @@ test('v3 backup preserves mixed adjustments, reads v2, and rejects fixed lines m
   ]);
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 7);
+  assert.equal(backup.version, 8);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1427,7 +1428,7 @@ test('exclusion persists in backups and CSV; invalid flags and old versions cann
   const d = draft('expense', { exclude_from_balance: 1, amount: 5000 });
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 7);
+  assert.equal(backup.version, 8);
   await repo.reset();
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), backup.data);
@@ -1496,155 +1497,9 @@ test('schema v2 upgrades safely with a constrained default inclusion flag', asyn
   const data = await f.repo.snapshot();
   assert.equal(data.transactions[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 8);
   assert.throws(() =>
     f.db.prepare('UPDATE transactions SET exclude_from_balance=2').run(),
-  );
-});
-
-test('nested categories persist, reparent safely and reject cycles, missing or mixed-type parents atomically', async (t) => {
-  const { repo } = await fixture(t);
-  const root = (await repo.snapshot()).categories.find(
-    (c) => c.id === 'default-expense-0',
-  );
-  await repo.saveCategory({
-    ...root,
-    id: 'child',
-    name: 'Ăn ngoài',
-    parent_id: root.id,
-  });
-  await repo.saveCategory({
-    ...root,
-    id: 'leaf',
-    name: 'Cà phê',
-    parent_id: 'child',
-  });
-  let before = await repo.snapshot();
-  assert.equal(
-    categoryPath(before.categories, 'leaf'),
-    `${root.name} › Ăn ngoài › Cà phê`,
-  );
-  assert.deepEqual(
-    [...categoryDescendants(before.categories, [root.id])].sort(),
-    [root.id, 'child', 'leaf'].sort(),
-  );
-  assert.equal(
-    categoryTree(before.categories).find((r) => r.category.id === 'leaf').depth,
-    2,
-  );
-  for (const parent_id of ['leaf', root.id, 'missing', 'default-income-0']) {
-    await assert.rejects(repo.saveCategory({ ...root, parent_id }));
-    assert.deepEqual(await repo.snapshot(), before);
-  }
-  await repo.saveCategory({
-    ...before.categories.find((c) => c.id === 'child'),
-    parent_id: null,
-  });
-  before = await repo.snapshot();
-  assert.equal(categoryPath(before.categories, 'leaf'), 'Ăn ngoài › Cà phê');
-  await assert.rejects(repo.deleteCategory('child'));
-  await repo.saveCategory({
-    ...before.categories.find((c) => c.id === 'child'),
-    is_archived: 1,
-  });
-  let after = await repo.snapshot();
-  assert.equal(after.categories.find((c) => c.id === 'leaf').is_archived, 1);
-  await assert.rejects(
-    repo.saveCategory({
-      ...after.categories.find((c) => c.id === 'leaf'),
-      is_archived: 0,
-    }),
-  );
-  await repo.saveCategory({
-    ...after.categories.find((c) => c.id === 'child'),
-    is_archived: 0,
-  });
-  after = await repo.snapshot();
-  assert.equal(after.categories.find((c) => c.id === 'child').is_archived, 0);
-  assert.equal(after.categories.find((c) => c.id === 'leaf').is_archived, 1);
-});
-
-test('parent filters include all descendants and overlapping selections count receipt allocations once', async (t) => {
-  const { repo } = await fixture(t);
-  const root = (await repo.snapshot()).categories.find(
-    (c) => c.id === 'default-expense-0',
-  );
-  await repo.saveCategory({ ...root, id: 'child', parent_id: root.id });
-  await repo.saveCategory({ ...root, id: 'leaf', parent_id: 'child' });
-  const simple = draft('expense', { category_id: 'leaf', amount: 100 });
-  await repo.saveTransaction(simple, false);
-  const receipt = draft('expense', { category_id: null, amount: 300 });
-  receipt.items = [
-    {
-      id: 'nested-item',
-      transaction_id: receipt.id,
-      name: 'Coffee',
-      amount: 200,
-      category_id: 'leaf',
-      sort_order: 0,
-    },
-    {
-      id: 'other-item',
-      transaction_id: receipt.id,
-      name: 'Other',
-      amount: 100,
-      category_id: 'default-expense-2',
-      sort_order: 1,
-    },
-  ];
-  await repo.saveTransaction(receipt, false);
-  const data = await repo.snapshot();
-  const selected = { ...filters, categories: [root.id, 'child', 'leaf'] };
-  assert.equal(filterTransactions(data, selected).length, 2);
-  const report = statistics(data, selected);
-  assert.equal(report.expense, 300);
-  assert.deepEqual(report.categories, { leaf: 300 });
-  assert.equal(statistics(data, filters).expense, 400);
-  const before = accountBalances(data);
-  await repo.saveCategory({
-    ...data.categories.find((c) => c.id === 'child'),
-    parent_id: 'default-expense-2',
-  });
-  const after = await repo.snapshot();
-  assert.deepEqual(accountBalances(after), before);
-  assert.equal(statistics(after, { ...filters, category: root.id }).expense, 0);
-  assert.equal(
-    statistics(after, { ...filters, category: 'default-expense-2' }).expense,
-    400,
-  );
-});
-
-test('v5 backup restores unordered hierarchy, rejects invalid trees before writes, and reads flat legacy backups', async (t) => {
-  const { repo } = await fixture(t);
-  const root = (await repo.snapshot()).categories.find(
-    (c) => c.id === 'default-expense-0',
-  );
-  await repo.saveCategory({ ...root, id: 'child', parent_id: root.id });
-  await repo.saveCategory({ ...root, id: 'leaf', parent_id: 'child' });
-  await repo.saveTransaction(draft('expense', { category_id: 'leaf' }), false);
-  const original = await repo.snapshot();
-  const backup = await repo.backup();
-  backup.data.categories.reverse();
-  await repo.restore(backup);
-  assert.deepEqual(await repo.snapshot(), original);
-  assert.ok(
-    transactionsCsv(original).includes(
-      categoryPath(original.categories, 'leaf'),
-    ),
-  );
-  for (const parent_id of ['leaf', 'missing', 'default-income-0']) {
-    const bad = structuredClone(backup);
-    bad.data.categories.find((c) => c.id === root.id).parent_id = parent_id;
-    await assert.rejects(async () => repo.restore(bad));
-    assert.deepEqual(await repo.snapshot(), original);
-  }
-  const old = structuredClone(backup);
-  old.version = 4;
-  await assert.rejects(async () => repo.restore(old));
-  for (const c of old.data.categories) delete c.parent_id;
-  await repo.restore(old);
-  assert.ok(
-    (await repo.snapshot()).categories.every((c) => c.parent_id === null),
   );
 });
 
@@ -1662,86 +1517,9 @@ test('schema v3 migrates flat categories without changing stored transactions', 
   assert.equal(data.categories.length, 1);
   assert.equal(data.categories[0].id, 'legacy');
   assert.equal(data.categories[0].parent_id, null);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 8);
   await f.repo.initialize();
   assert.deepEqual(await f.repo.snapshot(), data);
-});
-
-test('hierarchical reports drill down without double counting direct parent entries', async (t) => {
-  const { repo } = await fixture(t);
-  const root = (await repo.snapshot()).categories.find(
-    (c) => c.id === 'default-expense-0',
-  );
-  await repo.saveCategory({ ...root, id: 'child', parent_id: root.id });
-  await repo.saveCategory({ ...root, id: 'leaf', parent_id: 'child' });
-  const data = await repo.snapshot();
-  const amounts = {
-    [root.id]: 50,
-    child: 100,
-    leaf: 200,
-    'default-expense-2': 25,
-  };
-  const top = categoryReportRows(data.categories, amounts, null);
-  assert.equal(top.find((r) => r.id === root.id).amount, 350);
-  assert.equal(
-    top.reduce((sum, r) => sum + r.amount, 0),
-    375,
-  );
-  const level = categoryReportRows(data.categories, amounts, root.id);
-  assert.equal(level.find((r) => r.id === 'child').amount, 300);
-  assert.equal(level.find((r) => r.id === root.id).amount, 50);
-  assert.equal(
-    level.reduce((sum, r) => sum + r.amount, 0),
-    350,
-  );
-  assert.equal(
-    categoryReportRows(data.categories, amounts, 'child').reduce(
-      (sum, r) => sum + r.amount,
-      0,
-    ),
-    300,
-  );
-  const collapsed = categoryTree(data.categories, new Set([root.id]));
-  assert.ok(collapsed.some((r) => r.category.id === root.id));
-  assert.ok(
-    !collapsed.some(
-      (r) => r.category.id === 'child' || r.category.id === 'leaf',
-    ),
-  );
-});
-
-test('nested categories survive reset and restoring default categories with archived custom ancestors', async (t) => {
-  const { repo } = await fixture(t);
-  const root = (await repo.snapshot()).categories.find(
-    (c) => c.id === 'default-expense-0',
-  );
-  await repo.saveCategory({ ...root, id: 'custom-root', parent_id: null });
-  await repo.saveCategory({ ...root, parent_id: 'custom-root' });
-  await repo.saveCategory({ ...root, id: 'child', parent_id: root.id });
-  await repo.saveCategory({
-    ...root,
-    id: 'custom-root',
-    parent_id: null,
-    is_archived: 1,
-  });
-  await repo.restoreDefaults();
-  const restored = await repo.snapshot();
-  assert.equal(
-    restored.categories.find((c) => c.id === root.id).parent_id,
-    null,
-  );
-  assert.equal(
-    restored.categories.find((c) => c.id === root.id).is_archived,
-    0,
-  );
-  assert.equal(
-    restored.categories.find((c) => c.id === 'child').parent_id,
-    root.id,
-  );
-  await repo.reset();
-  const cleared = await repo.snapshot();
-  assert.equal(cleared.categories.length, 12);
-  assert.ok(cleared.categories.every((c) => c.parent_id === null));
 });
 
 function splitDraft(type, patch = {}) {
@@ -1999,7 +1777,7 @@ test('split backup roundtrip retains allocations and rejects misleading legacy v
   await repo.saveTransaction(splitDraft('expense'), false);
   const original = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 7);
+  assert.equal(backup.version, 8);
   await repo.restore(JSON.parse(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), original);
   const old = structuredClone(backup);
@@ -2185,16 +1963,16 @@ test('default category selection rejects empty, duplicate, archived or wrong-typ
   assert.deepEqual(await repo.snapshot(), before);
 });
 
-test('500k clothes on Shopee belongs fully to both labels and combined or ancestor filters count it only once', async (t) => {
+test('500k clothes on Shopee belongs fully to both flat labels and combined filters count it only once', async (t) => {
   const { repo } = await fixture(t, 600000);
   const sample = (await repo.snapshot()).categories.find(
     (c) => c.id === 'default-expense-0',
   );
   for (const c of [
     { id: 'fashion', name: 'Thời trang', parent_id: null },
-    { id: 'clothes', name: 'Quần áo', parent_id: 'fashion' },
+    { id: 'clothes', name: 'Quần áo', parent_id: null },
     { id: 'shopping', name: 'Mua sắm', parent_id: null },
-    { id: 'shopee', name: 'Shopee', parent_id: 'shopping' },
+    { id: 'shopee', name: 'Shopee', parent_id: null },
   ])
     await repo.saveCategory({ ...sample, ...c });
   const tx = draft('expense', { amount: 500000 });
@@ -2220,8 +1998,6 @@ test('500k clothes on Shopee belongs fully to both labels and combined or ancest
   for (const selected of [
     ['clothes'],
     ['shopee'],
-    ['fashion'],
-    ['shopping'],
     ['clothes', 'shopee'],
     ['fashion', 'clothes', 'shopping', 'shopee'],
   ]) {
@@ -2235,20 +2011,24 @@ test('500k clothes on Shopee belongs fully to both labels and combined or ancest
     null,
     report.categoryTotals,
   );
-  assert.equal(rows.find((r) => r.id === 'fashion').amount, 500000);
-  assert.equal(rows.find((r) => r.id === 'shopping').amount, 500000);
+  assert.equal(rows.find((r) => r.id === 'clothes').amount, 500000);
+  assert.equal(
+    statistics(data, { ...filters, category: 'fashion' }).expense,
+    0,
+  );
+  assert.equal(rows.find((r) => r.id === 'shopee').amount, 500000);
   assert.equal(report.hasCategoryTags, true);
   const csv = transactionsCsv(data);
-  assert.ok(csv.includes('Thời trang › Quần áo | Mua sắm › Shopee'));
+  assert.ok(csv.includes('Quần áo | Shopee'));
   assert.equal(csv.split('\r\n').length, 2);
 });
 
-test('multiple labels within one ancestor count that parent once and support amounts smaller than label count', async (t) => {
+test('multiple flat labels support amounts smaller than label count without increasing total expense', async (t) => {
   const { repo } = await fixture(t);
   const categories = (await repo.snapshot()).categories;
   const root = categories.find((c) => c.id === 'default-expense-0');
-  await repo.saveCategory({ ...root, id: 'leaf-one', parent_id: root.id });
-  await repo.saveCategory({ ...root, id: 'leaf-two', parent_id: root.id });
+  await repo.saveCategory({ ...root, id: 'leaf-one', parent_id: null });
+  await repo.saveCategory({ ...root, id: 'leaf-two', parent_id: null });
   const tx = draft('expense', { amount: 1 });
   const all = (await repo.snapshot()).categories;
   const labeled = prepareTransactionCategories(
@@ -2395,4 +2175,538 @@ test('v5 database and v6 backups gain label semantics without deleting original 
   assert.deepEqual(await f.repo.snapshot(), after);
   await f.repo.initialize();
   assert.deepEqual(await f.repo.snapshot(), after);
+});
+
+test('flat categories reject nested writes and archive independently while preserving transaction labels', async (t) => {
+  const { repo, db } = await fixture(t);
+  const category = (await repo.snapshot()).categories[0];
+  await repo.saveCategory({ ...category, id: 'independent', parent_id: null });
+  const before = await repo.snapshot();
+  await assert.rejects(
+    repo.saveCategory({ ...category, parent_id: 'independent' }),
+    /một cấp/,
+  );
+  await assert.rejects(
+    repo.saveCategory({ ...category, id: 'nested', parent_id: category.id }),
+    /một cấp/,
+  );
+  assert.throws(
+    () =>
+      db
+        .prepare('UPDATE categories SET parent_id=? WHERE id=?')
+        .run(category.id, 'independent'),
+    /single level/,
+  );
+  assert.deepEqual(await repo.snapshot(), before);
+  await repo.saveCategory({ ...category, is_archived: 1 });
+  const after = await repo.snapshot();
+  assert.equal(
+    after.categories.find((c) => c.id === 'independent').is_archived,
+    0,
+  );
+  await repo.deleteCategory('independent');
+  assert.ok(
+    !(await repo.snapshot()).categories.some((c) => c.id === 'independent'),
+  );
+});
+
+test('hierarchical legacy backups restore as independent categories without changing IDs, transactions or amounts', async (t) => {
+  const { repo } = await fixture(t);
+  await repo.saveTransaction(draft('expense'), false);
+  const backup = await repo.backup();
+  const parent = backup.data.categories.find(
+    (c) => c.id === 'default-expense-0',
+  );
+  const child = backup.data.categories.find(
+    (c) => c.id === 'default-expense-1',
+  );
+  const leaf = backup.data.categories.find((c) => c.id === 'default-expense-2');
+  child.parent_id = parent.id;
+  leaf.parent_id = child.id;
+  leaf.name = child.name; // Preserve duplicate names as distinct categories.
+  const bad = structuredClone(backup);
+  bad.data.categories.find((c) => c.id === parent.id).parent_id = leaf.id;
+  const before = await repo.snapshot();
+  await assert.rejects(async () => repo.restore(bad));
+  assert.deepEqual(await repo.snapshot(), before);
+  const parsed = parseBackup(JSON.stringify(backup));
+  assert.ok(parsed.data.categories.every((c) => c.parent_id === null));
+  await repo.restore(parsed);
+  const after = await repo.snapshot();
+  assert.equal(after.categories.length, backup.data.categories.length);
+  assert.deepEqual(after.transactions, backup.data.transactions);
+  assert.deepEqual(accountBalances(after), accountBalances(before));
+  for (const c of after.categories)
+    assert.deepEqual(c, {
+      ...backup.data.categories.find((old) => old.id === c.id),
+      parent_id: null,
+    });
+  assert.equal(categoryPath(after.categories, leaf.id), leaf.name);
+  await repo.restore(await repo.backup());
+  assert.deepEqual(await repo.snapshot(), after);
+});
+
+test('schema v6 flattens every level without removing categories, receipt rows or tags and migration is repeatable', async (t) => {
+  const { migration2, migration3, migration4, migration5, migration6 } =
+    await import('../src/database/migrations.ts');
+  const f = connect();
+  t.after(() => f.db.close());
+  f.db.exec(
+    migration1 + migration2 + migration3 + migration4 + migration5 + migration6,
+  );
+  f.db
+    .prepare('INSERT INTO accounts VALUES (?,?,?,?,?,?,?)')
+    .run('cash', 'Cash', 'cash', 1000, 0, instant, instant);
+  for (const [id, parent, archived] of [
+    ['root', null, 0],
+    ['child', 'root', 0],
+    ['leaf', 'child', 1],
+  ]) {
+    f.db
+      .prepare('INSERT INTO categories VALUES (?,?,?,?,?,?,?,?)')
+      .run(
+        id,
+        'Same name',
+        'expense',
+        'shirt-outline',
+        '#2563EB',
+        0,
+        archived,
+        parent,
+      );
+  }
+  f.db
+    .prepare(
+      'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at,category_ids_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    )
+    .run(
+      'tagged',
+      'expense',
+      'Tagged',
+      100,
+      'cash',
+      null,
+      'root',
+      '',
+      instant,
+      instant,
+      instant,
+      '["root","child"]',
+    );
+  f.db
+    .prepare(
+      'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    )
+    .run(
+      'receipt',
+      'expense',
+      'Receipt',
+      50,
+      'cash',
+      null,
+      null,
+      '',
+      instant,
+      instant,
+      instant,
+    );
+  f.db
+    .prepare('INSERT INTO transaction_items VALUES (?,?,?,?,?,?)')
+    .run('item', 'receipt', 'Clothes', 50, 'child', 0);
+  f.db.prepare("INSERT INTO settings VALUES ('onboarded','true')").run();
+  const originalTransactions = f.db
+    .prepare('SELECT * FROM transactions ORDER BY id')
+    .all();
+  const originalItems = f.db.prepare('SELECT * FROM transaction_items').all();
+  await f.repo.initialize();
+  const after = await f.repo.snapshot();
+  assert.equal(after.categories.length, 3);
+  assert.ok(
+    after.categories.every(
+      (c) => c.parent_id === null && c.name === 'Same name',
+    ),
+  );
+  assert.equal(after.categories.find((c) => c.id === 'leaf').is_archived, 1);
+  assert.equal(accountBalances(after).cash, 850);
+  assert.deepEqual(
+    f.db
+      .prepare('SELECT * FROM transactions ORDER BY id')
+      .all()
+      .map((row) => ({ ...row })),
+    originalTransactions.map((row) => ({ ...row, tag_ids_json: '[]' })),
+  );
+  assert.deepEqual(
+    f.db.prepare('SELECT * FROM transaction_items').all(),
+    originalItems,
+  );
+  assert.equal(
+    statistics(after, { ...filters, category: 'root' }).expense,
+    100,
+  );
+  assert.equal(
+    statistics(after, { ...filters, category: 'child' }).expense,
+    150,
+  );
+  assert.equal(
+    statistics(after, { ...filters, categories: ['root', 'child'] }).expense,
+    150,
+  );
+  await f.repo.initialize();
+  assert.deepEqual(await f.repo.snapshot(), after);
+  await f.repo.restoreDefaults();
+  assert.ok(
+    (await f.repo.snapshot()).categories.every((c) => c.parent_id === null),
+  );
+  await f.repo.reset();
+  assert.equal((await f.repo.snapshot()).categories.length, 12);
+});
+
+const makeTag = (id, name = id, patch = {}) => ({
+  id,
+  name,
+  color: '#287D68',
+  is_archived: 0,
+  ...patch,
+});
+
+test('standalone tags normalize names, reject duplicates or invalid fields, and rename without changing transaction links', async (t) => {
+  const { repo } = await fixture(t);
+  await repo.saveTag(makeTag('sale', '  Khuyến   Mãi  '));
+  let data = await repo.snapshot();
+  assert.equal(data.tags[0].name, 'Khuyến Mãi');
+  assert.equal(tagNameKey(' KHUYẾN MÃI '), tagNameKey('Khuyến Mãi'));
+  for (const bad of [
+    makeTag('duplicate', 'khuyến mãi'),
+    makeTag('blank', ' '),
+    makeTag('long', 'x'.repeat(51)),
+    makeTag('color', 'Color', { color: 'red' }),
+    makeTag('flag', 'Flag', { is_archived: 2 }),
+  ])
+    await assert.rejects(repo.saveTag(bad));
+  const tx = draft('expense', { tag_ids_json: '["sale"]' });
+  await repo.saveTransaction(tx, false);
+  await repo.saveTag(makeTag('sale', 'Ưu đãi', { color: '#2563EB' }));
+  data = await repo.snapshot();
+  assert.equal(data.tags.length, 1);
+  assert.equal(data.tags[0].name, 'Ưu đãi');
+  assert.deepEqual(transactionTagIds(data.transactions[0]), ['sale']);
+  assert.equal(statistics(data, filters).tags.sale.expense, 100);
+});
+
+test('500k with two independent tags counts once in balances and totals and appears fully under either tag', async (t) => {
+  const { repo } = await fixture(t, 600000);
+  await repo.saveTag(makeTag('shopee', 'Shopee'));
+  await repo.saveTag(makeTag('sale', 'Khuyến mãi'));
+  const tx = draft('expense', {
+    amount: 500000,
+    tag_ids_json: '["shopee","sale"]',
+  });
+  await repo.saveTransaction(tx, false);
+  const data = await repo.snapshot();
+  assert.equal(accountBalances(data).cash, 100000);
+  for (const tags of [[], ['shopee'], ['sale'], ['shopee', 'sale']]) {
+    const report = statistics(data, { ...filters, tags });
+    assert.equal(report.expense, 500000);
+    assert.equal(report.transactions.length, 1);
+    assert.deepEqual(report.tags.shopee, {
+      income: 0,
+      expense: 500000,
+      count: 1,
+    });
+    assert.deepEqual(report.tags.sale, {
+      income: 0,
+      expense: 500000,
+      count: 1,
+    });
+  }
+  assert.equal(data.items.length, 0);
+  assert.equal(data.categories.length, 12);
+});
+
+test('tag filters combine with account, category, search and amount filters and tag stats handle income and excluded money', async (t) => {
+  const { repo } = await fixture(t);
+  await repo.saveTag(makeTag('trip', 'Du lịch'));
+  await repo.saveTag(makeTag('work', 'Công việc'));
+  await repo.saveTransaction(
+    draft('income', {
+      amount: 400,
+      title: 'Trip income',
+      tag_ids_json: '["trip","work"]',
+    }),
+    false,
+  );
+  await repo.saveTransaction(
+    draft('expense', {
+      amount: 200,
+      title: 'Trip expense',
+      tag_ids_json: '["trip"]',
+    }),
+    false,
+  );
+  await repo.saveTransaction(
+    draft('expense', {
+      amount: 300,
+      title: 'Work expense',
+      exclude_from_balance: 1,
+      tag_ids_json: '["work"]',
+    }),
+    false,
+  );
+  await repo.saveTransaction(
+    draft('transfer', { tag_ids_json: '["trip"]' }),
+    false,
+  );
+  const data = await repo.snapshot();
+  const report = statistics(data, { ...filters, tags: ['trip', 'work'] });
+  assert.equal(report.income, 400);
+  assert.equal(report.expense, 500);
+  assert.deepEqual(report.tags.trip, { income: 400, expense: 200, count: 2 });
+  assert.deepEqual(report.tags.work, { income: 400, expense: 300, count: 2 });
+  assert.equal(
+    filterTransactions(data, { ...filters, tags: ['trip'] }).length,
+    3,
+  );
+  assert.equal(
+    filterTransactions(data, {
+      ...filters,
+      tags: ['work'],
+      account: 'cash',
+      search: 'Work',
+      minAmount: 300,
+      maxAmount: 300,
+      category: 'default-expense-0',
+    }).length,
+    1,
+  );
+  assert.equal(
+    filterTransactions(data, { ...filters, tags: ['missing'] }).length,
+    0,
+  );
+  assert.equal(accountBalances(data).cash, 700); // 200 expense + 100 transfer; excluded 300 is report-only.
+});
+
+test('tag archival keeps history and existing assignments editable while blocking new use; unused tags can be deleted', async (t) => {
+  const { repo } = await fixture(t);
+  const tag = makeTag('used', 'Used');
+  await repo.saveTag(tag);
+  await repo.saveTag(makeTag('unused', 'Unused'));
+  await repo.deleteTag('unused');
+  const tx = draft('expense', { tag_ids_json: '["used"]' });
+  await repo.saveTransaction(tx, false);
+  await repo.deleteTag('used');
+  let data = await repo.snapshot();
+  assert.equal(data.tags.length, 1);
+  assert.equal(data.tags[0].is_archived, 1);
+  assert.equal(statistics(data, { ...filters, tags: ['used'] }).expense, 100);
+  await assert.rejects(
+    repo.saveTransaction(draft('expense', { tag_ids_json: '["used"]' }), false),
+    /lưu trữ/,
+  );
+  await repo.saveTransaction({ ...tx, title: 'Edit only title' }, true);
+  data = await repo.snapshot();
+  assert.deepEqual(transactionTagIds(data.transactions[0]), ['used']);
+  await repo.saveTag(tag);
+  await repo.saveTransaction(
+    draft('expense', { tag_ids_json: '["used"]' }),
+    false,
+  );
+  assert.equal(
+    statistics(await repo.snapshot(), filters).tags.used.expense,
+    200,
+  );
+});
+
+test('invalid tag references and malformed tag arrays are rejected before transaction changes commit', async (t) => {
+  const { repo } = await fixture(t);
+  await repo.saveTag(makeTag('valid'));
+  const before = await repo.snapshot();
+  for (const raw of [
+    '{',
+    '{}',
+    '[1]',
+    '["missing"]',
+    '["valid","valid"]',
+    JSON.stringify(Array.from({ length: 101 }, (_, i) => `tag-${i}`)),
+  ]) {
+    await assert.rejects(
+      repo.saveTransaction(draft('expense', { tag_ids_json: raw }), false),
+    );
+    assert.deepEqual(await repo.snapshot(), before);
+  }
+  const tx = draft('expense', { tag_ids_json: '["valid"]' });
+  await repo.saveTransaction(tx, false);
+  const tagged = await repo.snapshot();
+  await assert.rejects(
+    repo.saveTransaction({ ...tx, tag_ids_json: '["missing"]' }, true),
+  );
+  assert.deepEqual(await repo.snapshot(), tagged);
+  await repo.saveTransaction({ ...tx, tag_ids_json: '[]' }, true);
+  assert.deepEqual(statistics(await repo.snapshot(), filters).tags, {});
+  await repo.deleteTag('valid');
+  assert.equal((await repo.snapshot()).tags.length, 0);
+});
+
+test('tag backup and CSV roundtrip preserve definitions and assignments and reject mislabelled or corrupt backups atomically', async (t) => {
+  const { repo } = await fixture(t);
+  await repo.saveTag(makeTag('sale', 'Khuyến mãi'));
+  await repo.saveTag(makeTag('shop', 'Shopee'));
+  await repo.saveTransaction(
+    draft('expense', { tag_ids_json: '["sale","shop"]' }),
+    false,
+  );
+  const before = await repo.snapshot();
+  const backup = await repo.backup();
+  assert.equal(backup.version, 8);
+  await repo.restore(parseBackup(JSON.stringify(backup)));
+  assert.deepEqual(await repo.snapshot(), before);
+  assert.ok(transactionsCsv(before).includes('Khuyến mãi | Shopee'));
+  for (const change of [
+    (b) => {
+      b.version = 7;
+    },
+    (b) => {
+      b.data.tags = [];
+    },
+    (b) => {
+      b.data.tags[1].name = b.data.tags[0].name;
+    },
+    (b) => {
+      b.data.tags[0].color = '#oops';
+    },
+    (b) => {
+      b.data.transactions[0].tag_ids_json = '["sale","sale"]';
+    },
+  ]) {
+    const bad = structuredClone(backup);
+    change(bad);
+    await assert.rejects(async () => repo.restore(bad));
+    assert.deepEqual(await repo.snapshot(), before);
+  }
+  const legacy = structuredClone(backup);
+  legacy.version = 7;
+  delete legacy.data.tags;
+  for (const tx of legacy.data.transactions) delete tx.tag_ids_json;
+  await repo.restore(parseBackup(JSON.stringify(legacy)));
+  assert.deepEqual((await repo.snapshot()).tags, []);
+  assert.deepEqual(
+    transactionTagIds((await repo.snapshot()).transactions[0]),
+    [],
+  );
+  await repo.reset();
+  assert.deepEqual((await repo.snapshot()).tags, []);
+});
+
+test('schema v7 upgrades to tag storage without changing any transaction amounts or category assignments', async (t) => {
+  const migrations = await import('../src/database/migrations.ts');
+  const f = connect();
+  t.after(() => f.db.close());
+  for (let version = 1; version <= 7; version++)
+    f.db.exec(migrations[`migration${version}`]);
+  f.db
+    .prepare('INSERT INTO accounts VALUES (?,?,?,?,?,?,?)')
+    .run('cash', 'Cash', 'cash', 1000, 0, instant, instant);
+  f.db
+    .prepare(
+      'INSERT INTO categories (id,name,type,icon,color,sort_order,is_archived) VALUES (?,?,?,?,?,?,?)',
+    )
+    .run('legacy', 'Category', 'expense', 'shirt-outline', '#287D68', 0, 0);
+  f.db
+    .prepare(
+      'INSERT INTO transactions (id,type,title,amount,source_account_id,destination_account_id,category_id,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    )
+    .run(
+      'legacy-tx',
+      'expense',
+      'Legacy',
+      150,
+      'cash',
+      null,
+      'legacy',
+      '',
+      instant,
+      instant,
+      instant,
+    );
+  f.db.prepare("INSERT INTO settings VALUES ('onboarded','true')").run();
+  await f.repo.initialize();
+  const data = await f.repo.snapshot();
+  assert.deepEqual(data.tags, []);
+  assert.equal(data.transactions[0].tag_ids_json, '[]');
+  assert.equal(data.transactions[0].category_id, 'legacy');
+  assert.equal(data.transactions[0].amount, 150);
+  assert.equal(accountBalances(data).cash, 850);
+  await f.repo.initialize();
+  assert.deepEqual(await f.repo.snapshot(), data);
+});
+
+test('category dragging respects measured row heights, insertion thresholds and list boundaries', () => {
+  const layouts = [
+    { id: 'short', top: 4, height: 60 },
+    { id: 'tall', top: 72, height: 100 },
+    { id: 'last', top: 180, height: 50 },
+  ];
+  assert.equal(categoryDropPosition(layouts, 'short', 0).target, 0);
+  assert.equal(categoryDropPosition(layouts, 'short', 35).target, 0);
+  assert.equal(categoryDropPosition(layouts, 'short', 40).target, 1);
+  assert.equal(categoryDropPosition(layouts, 'short', 150).target, 2);
+  assert.equal(categoryDropPosition(layouts, 'short', 10000).translation, 166);
+  assert.equal(categoryDropPosition(layouts, 'last', -30).target, 2);
+  assert.equal(categoryDropPosition(layouts, 'last', -40).target, 1);
+  assert.equal(categoryDropPosition(layouts, 'last', -150).target, 0);
+  assert.equal(categoryDropPosition(layouts, 'last', -10000).translation, -176);
+  assert.equal(categoryDropPosition(layouts, 'tall', 0).extent, 108);
+  assert.equal(categoryDropPosition(layouts, 'missing', 10), null);
+  assert.equal(categoryDropPosition([], 'short', 10), null);
+  assert.equal(categoryDropPosition(layouts, 'short', NaN), null);
+});
+
+test('dragging inserts rather than swaps and preserves every intermediate category without mutating input', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(reorderCategoryIds(ids, 0, 3), ['b', 'c', 'd', 'a']);
+  assert.deepEqual(reorderCategoryIds(ids, 3, 1), ['a', 'd', 'b', 'c']);
+  assert.deepEqual(ids, ['a', 'b', 'c', 'd']);
+  for (const [from, to] of [
+    [0, 0],
+    [-1, 1],
+    [0, 4],
+    [4, 0],
+  ])
+    assert.deepEqual(reorderCategoryIds(ids, from, to), ids);
+});
+
+test('dropped category order persists across reopening the database without changing transactions or other types', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'moni-category-drag-'));
+  const path = join(dir, 'finance.db');
+  const first = connect(path);
+  await first.repo.initialize();
+  await first.repo.onboard([
+    makeAccount('cash', 'Cash', 'cash', 1000),
+    makeAccount('bank', 'Bank', 'bank', 100),
+  ]);
+  await first.repo.saveTransaction(draft('expense'), false);
+  const before = await first.repo.snapshot();
+  const ids = before.categories
+    .filter((c) => c.type === 'expense')
+    .map((c) => c.id);
+  const moved = reorderCategoryIds(ids, 0, ids.length - 1);
+  await first.repo.reorderCategories('expense', moved);
+  first.db.close();
+  const reopened = connect(path);
+  t.after(() => {
+    reopened.db.close();
+    unlinkSync(path);
+    rmdirSync(dir);
+  });
+  await reopened.repo.initialize();
+  const after = await reopened.repo.snapshot();
+  assert.deepEqual(
+    after.categories.filter((c) => c.type === 'expense').map((c) => c.id),
+    moved,
+  );
+  assert.deepEqual(
+    after.categories.filter((c) => c.type === 'income'),
+    before.categories.filter((c) => c.type === 'income'),
+  );
+  assert.deepEqual(after.transactions, before.transactions);
+  assert.deepEqual(accountBalances(after), accountBalances(before));
 });

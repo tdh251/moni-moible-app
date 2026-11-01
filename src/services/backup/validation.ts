@@ -1,3 +1,4 @@
+import { transactionTagIds } from '../tags.ts';
 import { transactionCategoryTags } from '../categories/tags.ts';
 import type { Ledger, Snapshot } from '../../types/finance.ts';
 import { parseAdjustments } from '../accounting/receipt.ts';
@@ -10,7 +11,7 @@ import {
 
 export interface Backup {
   format: 'monomoney';
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   exported_at: string;
   data: Snapshot;
 }
@@ -60,10 +61,11 @@ export function validateBackup(value: unknown): Backup {
         value.version === 4 ||
         value.version === 5 ||
         value.version === 6 ||
-        value.version === 7) &&
+        value.version === 7 ||
+        value.version === 8) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 7.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 8.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -75,6 +77,19 @@ export function validateBackup(value: unknown): Backup {
     categories = rows(data.categories),
     transactions = rows(data.transactions),
     items = rows(data.items);
+  const tags = rows(data.tags ?? []);
+  ensure(
+    backupVersion >= 8 || tags.length === 0,
+    'Bản sao lưu có tag phải dùng phiên bản 8.',
+  );
+  for (const tag of tags)
+    ensure(
+      text(tag.name, 50) &&
+        typeof tag.color === 'string' &&
+        /^#[0-9a-fA-F]{6}$/.test(tag.color) &&
+        flag(tag.is_archived),
+      'Tag trong bản sao lưu không hợp lệ.',
+    );
   for (const a of accounts)
     ensure(
       text(a.name, 100) &&
@@ -118,6 +133,7 @@ export function validateBackup(value: unknown): Backup {
   for (const t of transactions)
     ensure(
       text(t.title) &&
+        (t.tag_ids_json === undefined || text(t.tag_ids_json, 20000)) &&
         (t.category_ids_json === undefined ||
           text(t.category_ids_json, 1000000)) &&
         (t.category_split === undefined || flag(t.category_split)) &&
@@ -160,6 +176,13 @@ export function validateBackup(value: unknown): Backup {
       'Bản sao lưu có giao dịch không tính vào số dư phải dùng phiên bản 4.',
     );
   for (const t of transactions) {
+    const tagIds = transactionTagIds(
+      t as unknown as import('../../types/finance.ts').Transaction,
+    );
+    ensure(
+      backupVersion >= 8 || tagIds.length === 0,
+      'Bản sao lưu có tag phải dùng phiên bản 8.',
+    );
     const tags = transactionCategoryTags(
       t as unknown as import('../../types/finance.ts').Transaction,
     );
@@ -178,12 +201,14 @@ export function validateBackup(value: unknown): Backup {
   // Shape guards above plus the domain validator check money, references, types, totals and historical balances.
   const ledger = {
     accounts,
+    tags,
     categories: categories.map((c) => ({
       ...c,
       parent_id: c.parent_id ?? null,
     })),
     transactions: transactions.map((t) => ({
       ...t,
+      tag_ids_json: t.tag_ids_json ?? '[]',
       category_ids_json:
         backupVersion < 7 && t.category_split === 1
           ? JSON.stringify(
@@ -202,9 +227,13 @@ export function validateBackup(value: unknown): Backup {
   validateLedger(ledger);
   return {
     format: 'monomoney',
-    version: 7,
+    version: 8,
     exported_at: value.exported_at,
-    data: { ...ledger, onboarded: data.onboarded },
+    data: {
+      ...ledger,
+      categories: ledger.categories.map((c) => ({ ...c, parent_id: null })),
+      onboarded: data.onboarded,
+    },
   };
 }
 export function parseBackup(raw: string): Backup {

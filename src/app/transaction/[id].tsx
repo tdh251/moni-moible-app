@@ -1,3 +1,4 @@
+import { TagBadges } from '../../features/tags/TagBadges';
 import { transactionCategoryTags } from '../../services/categories/tags';
 import { categoryPath } from '../../services/categories/hierarchy';
 import { Text, View } from 'react-native';
@@ -88,6 +89,7 @@ export default function TransactionDetail() {
             Danh mục: {category(id)}
           </Text>
         ))}
+        <TagBadges transaction={t} tags={data.tags ?? []} />
         {!!t.note && <Text style={s.text}>{t.note}</Text>}
         {t.type === 'transfer' && (
           <Text style={s.muted}>

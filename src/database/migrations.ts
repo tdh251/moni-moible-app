@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 8;
 export const migration1 = `
 CREATE TABLE accounts (
  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
@@ -68,4 +68,25 @@ UPDATE transactions SET category_ids_json=(
  )
 ) WHERE category_split=1;
 PRAGMA user_version=6;
+`;
+
+export const migration7 = `
+UPDATE categories SET parent_id=NULL WHERE parent_id IS NOT NULL;
+CREATE TRIGGER categories_single_level_insert BEFORE INSERT ON categories
+WHEN NEW.parent_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'Categories must have a single level'); END;
+CREATE TRIGGER categories_single_level_update BEFORE UPDATE OF parent_id ON categories
+WHEN NEW.parent_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'Categories must have a single level'); END;
+PRAGMA user_version=7;
+`;
+
+export const migration8 = `
+CREATE TABLE tags (
+ id TEXT PRIMARY KEY NOT NULL,
+ name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 50),
+ name_key TEXT NOT NULL UNIQUE,
+ color TEXT NOT NULL,
+ is_archived INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1))
+);
+ALTER TABLE transactions ADD COLUMN tag_ids_json TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version=8;
 `;

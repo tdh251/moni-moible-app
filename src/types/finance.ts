@@ -19,7 +19,14 @@ export interface Category {
   sort_order: number;
   is_archived: number;
 }
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+  is_archived: number;
+}
 export interface Transaction {
+  tag_ids_json?: string;
   category_ids_json?: string;
   category_split?: 0 | 1;
   adjustments_json?: string;
@@ -54,6 +61,7 @@ export interface TransactionItem {
   sort_order: number;
 }
 export interface Ledger {
+  tags?: Tag[];
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
@@ -67,6 +75,7 @@ export interface TransactionDraft extends Transaction {
 }
 export type Period = 'day' | 'month' | 'quarter' | 'year';
 export interface Filters {
+  tags?: string[];
   period: Period;
   date: string;
   account: string;

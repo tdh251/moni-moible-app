@@ -1,3 +1,5 @@
+import { transactionTagIds } from '../../services/tags';
+import { TagPicker } from '../tags/TagPicker';
 import { transactionCategoryTags } from '../../services/categories/tags';
 import { TransactionCategoriesPicker } from './TransactionCategoriesPicker';
 import {
@@ -84,6 +86,9 @@ export function TransactionForm({
     () => new Date(existing?.occurred_at ?? Date.now()),
   );
   const [dateMode, setDateMode] = useState<'date' | 'time' | null>(null);
+  const [tagIds, setTagIds] = useState<string[]>(() =>
+    existing ? transactionTagIds(existing) : [],
+  );
   const [note, setNote] = useState(existing?.note ?? '');
   const storedItems = data.items.filter(
     (i) => i.transaction_id === existing?.id,
@@ -247,6 +252,7 @@ export function TransactionForm({
         id,
         type,
         category_split: selected?.category_split ?? (0 as const),
+        tag_ids_json: JSON.stringify(tagIds),
         category_ids_json: selected?.category_ids_json ?? '[]',
         title: title.trim(),
         amount: total,
@@ -424,6 +430,9 @@ export function TransactionForm({
           />
         </>
       )}
+      <AppCard>
+        <TagPicker value={tagIds} onChange={setTagIds} />
+      </AppCard>
       <BalanceExclusionCheckbox
         value={excludeFromBalance}
         onChange={setExcludeFromBalance}

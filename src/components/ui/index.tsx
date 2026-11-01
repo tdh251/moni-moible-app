@@ -1,3 +1,4 @@
+import { TagBadges } from '../../features/tags/TagBadges';
 import { transactionCategoryTags } from '../../services/categories/tags';
 import { categoryPath } from '../../services/categories/hierarchy';
 import React from 'react';
@@ -578,6 +579,7 @@ export function TransactionRow({
               ? `${name(t.source_account_id)} → ${name(t.destination_account_id)}`
               : `${name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map((id) => categoryPath(ledger.categories, id)).join(' · ') : items.length ? `${items.length} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryPath(ledger.categories, category?.id ?? null)}`}
           </Text>
+          <TagBadges transaction={t} tags={ledger.tags ?? []} />
         </View>
         <View style={{ alignItems: 'flex-end', maxWidth: '46%' }}>
           <Amount

@@ -1,3 +1,4 @@
+import { transactionTagIds, validateTags } from '../tags.ts';
 import { transactionCategoryTags } from '../categories/tags.ts';
 import {
   categoryDescendants,
@@ -32,6 +33,7 @@ export function validateTransaction(
   lookup?: {
     accounts: Map<string, Account>;
     categories: Map<string, Category>;
+    tags?: Map<string, import('../../types/finance.ts').Tag>;
   },
 ): void {
   ensure(
@@ -45,6 +47,22 @@ export function validateTransaction(
       t.exclude_from_balance === 1,
     'Trạng thái không tính vào số dư phải là 0 hoặc 1.',
   );
+  const previousTagIds = active
+    ? new Set(
+        transactionTagIds(
+          ledger.transactions.find((old) => old.id === t.id) ?? {},
+        ),
+      )
+    : new Set<string>();
+  for (const id of transactionTagIds(t)) {
+    const tag = lookup?.tags
+      ? lookup.tags.get(id)
+      : (ledger.tags ?? []).find((tag) => tag.id === id);
+    ensure(
+      tag && (!active || !tag.is_archived || previousTagIds.has(id)),
+      'Tag không tồn tại hoặc đã lưu trữ. Hãy chọn lại tag.',
+    );
+  }
   const adjustments = parseAdjustments(t.adjustments_json);
   ensure(
     !adjustments.length || (t.type === 'expense' && items.length > 0),
@@ -201,6 +219,7 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
   return result;
 }
 export function validateLedger(ledger: Ledger): void {
+  validateTags(ledger.tags ?? []);
   const hierarchyError = categoryHierarchyError(ledger.categories);
   ensure(!hierarchyError, hierarchyError ?? 'Cấu trúc danh mục không hợp lệ.');
   for (const a of ledger.accounts) {
@@ -215,6 +234,7 @@ export function validateLedger(ledger: Ledger): void {
   const lookup = {
     accounts: new Map(ledger.accounts.map((a) => [a.id, a])),
     categories: new Map(ledger.categories.map((c) => [c.id, c])),
+    tags: new Map((ledger.tags ?? []).map((t) => [t.id, t])),
   };
   let lifetimeIncome = 0;
   let lifetimeExpense = 0;
@@ -320,6 +340,7 @@ export function filterTransactions(
         ? [filters.account]
         : [],
   );
+  const selectedTags = new Set(filters.tags ?? []);
   const categories = categoryFilterIds(filters, ledger.categories);
   if (filters.minAmount !== undefined) money(filters.minAmount, true);
   if (filters.maxAmount !== undefined) money(filters.maxAmount, true);
@@ -341,6 +362,8 @@ export function filterTransactions(
         date >= start &&
         date < end &&
         (!filters.type || t.type === filters.type) &&
+        (!selectedTags.size ||
+          transactionTagIds(t).some((id) => selectedTags.has(id))) &&
         (!accounts.size ||
           accounts.has(t.source_account_id ?? '') ||
           accounts.has(t.destination_account_id ?? '')) &&
@@ -367,6 +390,19 @@ export function statistics(ledger: Ledger, filters: Filters) {
   let income = 0;
   let expense = 0;
   const categories = new Map<string, number>();
+  const tags = new Map<
+    string,
+    { income: number; expense: number; count: number }
+  >();
+  const addTagAmounts = (t: Transaction, amount: number) => {
+    for (const id of transactionTagIds(t)) {
+      const row = tags.get(id) ?? { income: 0, expense: 0, count: 0 };
+      if (t.type === 'income') row.income = safeAdd(row.income, amount);
+      if (t.type === 'expense') row.expense = safeAdd(row.expense, amount);
+      row.count += 1;
+      tags.set(id, row);
+    }
+  };
   const categoryTotals = new Map<string, number>();
   const byCategory = new Map(ledger.categories.map((c) => [c.id, c]));
   const ancestors = (id: string) => {
@@ -385,6 +421,7 @@ export function statistics(ledger: Ledger, filters: Filters) {
     const tags = transactionCategoryTags(t);
     if (tags.length) {
       hasCategoryTags = true;
+      addTagAmounts(t, t.amount);
       if (t.type === 'income') income = safeAdd(income, t.amount);
       else expense = safeAdd(expense, t.amount);
       const inclusive = new Set<string>();
@@ -411,6 +448,7 @@ export function statistics(ledger: Ledger, filters: Filters) {
             .filter((i) => selectedCategories.has(i.category_id))
             .reduce((sum, i) => safeAdd(sum, i.amount), 0)
         : t.amount;
+    addTagAmounts(t, amount);
     if (t.type === 'income') income = safeAdd(income, amount);
     else expense = safeAdd(expense, amount);
     if (items.length) {
@@ -440,6 +478,10 @@ export function statistics(ledger: Ledger, filters: Filters) {
     income,
     expense,
     net: safeAdd(income, -expense),
+    tags: Object.fromEntries(tags) as Record<
+      string,
+      { income: number; expense: number; count: number }
+    >,
     hasCategoryTags,
     categoryTotals: Object.fromEntries(categoryTotals) as Record<
       string,
