@@ -9,6 +9,10 @@ import {
   loanMonthlyPayment,
 } from '../src/services/loans.ts';
 import {
+  loanReminderDates,
+  planLoanReminders,
+} from '../src/services/loan-reminders/plan.ts';
+import {
   categoryDropPosition,
   reorderCategoryIds,
 } from '../src/features/categories/reorder.ts';
@@ -203,7 +207,7 @@ test('deleting categories removes unused ones and archives transaction or receip
 test('fresh migrations are repeatable, FK enabled, cash uniqueness and constraints work', async (t) => {
   const { repo, db } = await fixture(t);
   await repo.initialize();
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.throws(() =>
     db
@@ -997,7 +1001,7 @@ test('current backup and CSV retain custom fields, and malformed adjustments can
   const d = adjustedDraft();
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1068,7 +1072,7 @@ test('migration v1 to v2 preserves existing accounts, transactions and onboardin
   assert.equal(data.transactions[0].id, 'old-tx');
   assert.equal(data.transactions[0].adjustments_json, '[]');
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
 });
 
 test('fixed VND parser accepts signed integers and rejects unsafe or fractional input', () => {
@@ -1225,7 +1229,7 @@ test('v3 backup preserves mixed adjustments, reads v2, and rejects fixed lines m
   ]);
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1438,7 +1442,7 @@ test('exclusion persists in backups and CSV; invalid flags and old versions cann
   const d = draft('expense', { exclude_from_balance: 1, amount: 5000 });
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.reset();
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), backup.data);
@@ -1507,7 +1511,7 @@ test('schema v2 upgrades safely with a constrained default inclusion flag', asyn
   const data = await f.repo.snapshot();
   assert.equal(data.transactions[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.throws(() =>
     f.db.prepare('UPDATE transactions SET exclude_from_balance=2').run(),
   );
@@ -1527,7 +1531,7 @@ test('schema v3 migrates flat categories without changing stored transactions', 
   assert.equal(data.categories.length, 1);
   assert.equal(data.categories[0].id, 'legacy');
   assert.equal(data.categories[0].parent_id, null);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   await f.repo.initialize();
   assert.deepEqual(await f.repo.snapshot(), data);
 });
@@ -2152,7 +2156,7 @@ test('tag backup and CSV roundtrip preserve definitions and assignments and reje
   );
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   assert.ok(transactionsCsv(before).includes('Khuyến mãi | Shopee'));
@@ -2330,6 +2334,221 @@ function payment(loanId, patch = {}) {
     ...patch,
   };
 }
+
+test('monthly reminder dates clamp month ends and leap years, stay at local 09:00 and stop at term end', () => {
+  const scheduled = loan({
+    payment_day: 31,
+    occurred_at: new Date(2028, 0, 1).toISOString(),
+    due_at: new Date(2028, 3, 30, 23, 59).toISOString(),
+  });
+  const dates = loanReminderDates(scheduled, new Date(2028, 0, 1));
+  assert.deepEqual(
+    dates.map((date) => [
+      date.getMonth(),
+      date.getDate(),
+      date.getHours(),
+      date.getMinutes(),
+    ]),
+    [
+      [0, 31, 9, 0],
+      [1, 29, 9, 0],
+      [2, 31, 9, 0],
+      [3, 30, 9, 0],
+    ],
+  );
+  assert.deepEqual(
+    loanReminderDates(
+      { ...scheduled, payment_day: null },
+      new Date(2028, 0, 1),
+    ),
+    [],
+  );
+  assert.deepEqual(
+    loanReminderDates({ ...scheduled, due_at: null }, new Date(2028, 0, 1)),
+    [],
+  );
+  assert.deepEqual(loanReminderDates(scheduled, new Date(2028, 4, 1)), []);
+  assert.equal(
+    loanReminderDates(scheduled, new Date(2028, 0, 31, 8))[0].getMonth(),
+    0,
+  );
+  assert.equal(
+    loanReminderDates(scheduled, new Date(2028, 0, 31, 9))[0].getMonth(),
+    1,
+  );
+  assert.equal(
+    loanReminderDates(
+      { ...scheduled, occurred_at: new Date(2028, 1, 1).toISOString() },
+      new Date(2028, 0, 1),
+    )[0].getMonth(),
+    1,
+  );
+  const normalYear = {
+    ...scheduled,
+    occurred_at: new Date(2027, 11, 1).toISOString(),
+    due_at: new Date(2029, 2, 1).toISOString(),
+  };
+  assert.equal(
+    loanReminderDates(normalYear, new Date(2029, 1, 1))[0].getDate(),
+    28,
+  );
+});
+
+test('reminder plans distinguish borrowing and lending, remove settled or deleted loans, and cap the nearest dates globally', async (t) => {
+  const { repo } = await fixture(t);
+  const borrowed = loan({
+    payment_day: 15,
+    due_at: new Date(2036, 11, 31, 23, 59).toISOString(),
+  });
+  const lent = loan({
+    direction: 'lend',
+    account_id: 'cash',
+    payment_day: 20,
+    due_at: borrowed.due_at,
+  });
+  await repo.addLoan(borrowed);
+  await repo.addLoan(lent);
+  const now = new Date(2026, 10, 1);
+  const plan = planLoanReminders(await repo.snapshot(), now);
+  assert.equal(plan.length, 60);
+  assert.equal(new Set(plan.map((item) => item.id)).size, 60);
+  assert.equal(plan[0].date.getDate(), 15);
+  assert.match(plan[0].title, /trả nợ/);
+  assert.match(plan[1].title, /thu hồi/);
+  await repo.repayLoan(payment(borrowed.id, { amount: borrowed.amount }));
+  assert.ok(
+    planLoanReminders(await repo.snapshot(), now).every(
+      (item) => item.loanId === lent.id,
+    ),
+  );
+  await repo.deleteLoan(lent.id);
+  assert.deepEqual(planLoanReminders(await repo.snapshot(), now), []);
+});
+
+test('monthly reminder settings validate atomically, preserve balances and survive backup and v17 upgrade', async (t) => {
+  const { repo, db } = await fixture(t);
+  const scheduled = loan({ due_at: '2027-10-10T23:59:59.999Z' });
+  await repo.addLoan(scheduled);
+  const before = await repo.snapshot();
+  db.exec('ALTER TABLE loans DROP COLUMN payment_day; PRAGMA user_version=17;');
+  await repo.initialize();
+  assert.deepEqual(await repo.snapshot(), before);
+  for (const day of [0, -1, 32, 1.5, NaN, '12'])
+    await assert.rejects(repo.setLoanPaymentDay(scheduled.id, day));
+  await assert.rejects(repo.setLoanPaymentDay('missing', 12));
+  assert.deepEqual(await repo.snapshot(), before);
+  await repo.setLoanPaymentDay(scheduled.id, 31);
+  const saved = await repo.snapshot();
+  assert.equal(saved.loans[0].payment_day, 31);
+  assert.deepEqual(accountBalances(saved), accountBalances(before));
+  const backup = await repo.backup();
+  assert.equal(backup.version, 18);
+  assert.throws(() => validateBackup({ ...backup, version: 17 }));
+  await repo.restore(parseBackup(JSON.stringify(backup)));
+  assert.deepEqual(await repo.snapshot(), saved);
+  await repo.setLoanPaymentDay(scheduled.id, null);
+  const legacy = await repo.backup();
+  legacy.version = 17;
+  delete legacy.data.loans[0].payment_day;
+  await repo.restore(legacy);
+  assert.deepEqual(await repo.snapshot(), before);
+  const open = loan();
+  await repo.addLoan(open);
+  await assert.rejects(repo.setLoanPaymentDay(open.id, 12));
+  await assert.rejects(repo.addLoan(loan({ payment_day: 12 })));
+});
+
+test('lending debits principal, collects partial and full repayments across accounts, and keeps reports unchanged', async (t) => {
+  const { repo } = await fixture(t);
+  const lent = loan({
+    direction: 'lend',
+    account_id: 'cash',
+    costs_json: JSON.stringify([
+      { id: 'interest', name: 'Interest', amount: 50 },
+    ]),
+  });
+  await repo.addLoan(lent);
+  let data = await repo.snapshot();
+  assert.equal(accountBalances(data).cash, 500);
+  assert.equal(totalLoanOutstanding(data), 0);
+  assert.equal(totalLoanOutstanding(data, 'lend'), 550);
+  await repo.repayLoan(payment(lent.id, { amount: 200 }));
+  data = await repo.snapshot();
+  assert.equal(accountBalances(data).bank, 300);
+  assert.equal(totalLoanOutstanding(data, 'lend'), 350);
+  await repo.repayLoan(
+    payment(lent.id, { amount: 350, account_id: 'cash', fee_amount: 10 }),
+  );
+  data = await repo.snapshot();
+  assert.equal(accountBalances(data).cash, 860);
+  assert.equal(totalLoanOutstanding(data, 'lend'), 0);
+  assert.equal(statistics(data, filters).income, 0);
+  assert.equal(statistics(data, filters).expense, 0);
+  await assert.rejects(repo.repayLoan(payment(lent.id)));
+});
+
+test('lending validates direction, available funds, collection dates and overpayments atomically', async (t) => {
+  const { repo } = await fixture(t);
+  const before = await repo.snapshot();
+  await assert.rejects(repo.addLoan(loan({ direction: 'invalid' })));
+  await assert.rejects(repo.addLoan(loan({ direction: 'lend', amount: 101 })));
+  assert.deepEqual(await repo.snapshot(), before);
+  const lent = loan({ direction: 'lend', account_id: 'cash' });
+  await repo.addLoan(lent);
+  const after = await repo.snapshot();
+  await assert.rejects(repo.repayLoan(payment(lent.id, { amount: 501 })));
+  await assert.rejects(
+    repo.repayLoan(
+      payment(lent.id, { occurred_at: '2026-10-09T05:00:00.000Z' }),
+    ),
+  );
+  assert.deepEqual(await repo.snapshot(), after);
+  await repo.deleteLoan(lent.id);
+  assert.equal(accountBalances(await repo.snapshot()).cash, 1000);
+});
+
+test('v16 migration preserves borrowed balances and defaults existing loans to borrowing', async (t) => {
+  const { repo, db } = await fixture(t);
+  const borrowed = loan();
+  await repo.addLoan(borrowed);
+  await repo.repayLoan(payment(borrowed.id));
+  const before = await repo.snapshot();
+  db.exec(
+    'ALTER TABLE loans DROP COLUMN payment_day; ALTER TABLE loans DROP COLUMN direction; PRAGMA user_version=16;',
+  );
+  await repo.initialize();
+  assert.deepEqual(await repo.snapshot(), before);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 18);
+  const legacy = await repo.backup();
+  legacy.version = 16;
+  delete legacy.data.loans[0].direction;
+  await repo.restore(legacy);
+  assert.deepEqual(await repo.snapshot(), before);
+});
+
+test('lending supports historical records, independent debt totals, collection deletion and backup restore', async (t) => {
+  const { repo } = await fixture(t);
+  const lent = loan({ direction: 'lend', exclude_from_balance: 1 });
+  const borrowed = loan();
+  await repo.addLoan(lent);
+  await repo.addLoan(borrowed);
+  const collected = payment(lent.id, { amount: 200 });
+  await repo.repayLoan(collected);
+  let data = await repo.snapshot();
+  assert.equal(accountBalances(data).bank, 800);
+  assert.equal(totalLoanOutstanding(data), 500);
+  assert.equal(totalLoanOutstanding(data, 'lend'), 300);
+  const backup = validateBackup(await repo.backup());
+  assert.equal(backup.version, 18);
+  assert.throws(() => validateBackup({ ...backup, version: 16 }));
+  const other = await fixture(t);
+  await other.repo.restore(backup);
+  assert.deepEqual(await other.repo.snapshot(), data);
+  await repo.deleteLoanPayment(collected.id);
+  data = await repo.snapshot();
+  assert.equal(accountBalances(data).bank, 600);
+  assert.equal(totalLoanOutstanding(data, 'lend'), 500);
+});
 test('borrowing credits only the receiving account once and never inflates income reports', async (t) => {
   const { repo } = await fixture(t);
   const before = await repo.snapshot();
@@ -2490,7 +2709,7 @@ test('loan backups roundtrip, reject malformed or disguised old-version debts wi
   await repo.repayLoan(payment(borrowed.id));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const mutate of [
@@ -2547,7 +2766,7 @@ test('schema v8 migration adds loan tables without changing existing accounts, t
   f.db.prepare("INSERT INTO settings VALUES ('onboarded','true')").run();
   await f.repo.initialize();
   let data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.deepEqual(data.loans, []);
   assert.deepEqual(data.loanPayments, []);
   assert.equal(accountBalances(data).cash, 1000);
@@ -2660,7 +2879,7 @@ test('backup includes term and costs, rejects version downgrades and reads old p
   );
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -2715,7 +2934,7 @@ test('schema v9 migration preserves existing loans and repayments with no term a
     );
   await f.repo.initialize();
   const data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.equal(data.loans[0].due_at, null);
   assert.equal(data.loans[0].costs_json, '[]');
   assert.equal(data.loans[0].note, 'Ghi chú cũ');
@@ -2875,7 +3094,7 @@ test('v10 loan migration keeps original cash movements, includes fees in debt an
   assert.equal(data.loans[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 1000);
   assert.equal(totalLoanOutstanding(data), 170);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.throws(() =>
     f.db.prepare('UPDATE loans SET exclude_from_balance=2').run(),
   );
@@ -2945,7 +3164,7 @@ test('settlement fees persist in backups and invalid or legacy fee data cannot r
   await repo.repayLoan(payment(borrowed.id, { amount: 500, fee_amount: 50 }));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -2989,7 +3208,7 @@ test('schema v11 migration defaults repayment fee to zero without changing debt 
   assert.equal(data.loanPayments[0].fee_amount, 0);
   assert.equal(accountBalances(data).cash, 1400);
   assert.equal(totalLoanOutstanding(data), 400);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 16);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 18);
   assert.throws(() =>
     f.db.prepare('UPDATE loan_payments SET fee_amount=-1').run(),
   );
@@ -3166,7 +3385,7 @@ test('item tags survive backup and CSV, reject legacy versions and reset with th
   await repo.saveTransaction(receipt, false);
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   const csv = transactionsCsv(before);
@@ -3196,7 +3415,7 @@ test('v14 migration preserves receipt items and their tags while adding empty mu
   await repo.saveTransaction(receipt, false);
   const before = await repo.snapshot();
   db.exec(
-    'DROP TRIGGER items_one_category_insert; DROP TRIGGER items_one_category_update; DROP TRIGGER transactions_one_category_insert; DROP TRIGGER transactions_one_category_update; ALTER TABLE transaction_items DROP COLUMN category_ids_json; PRAGMA user_version=14',
+    'DROP TRIGGER items_one_category_insert; DROP TRIGGER items_one_category_update; DROP TRIGGER transactions_one_category_insert; DROP TRIGGER transactions_one_category_update; ALTER TABLE transaction_items DROP COLUMN category_ids_json; ALTER TABLE loans DROP COLUMN payment_day; ALTER TABLE loans DROP COLUMN direction; PRAGMA user_version=14',
   );
   await repo.initialize();
   assert.deepEqual(await repo.snapshot(), before);
@@ -3246,7 +3465,7 @@ function insertLegacyTransaction(db, transaction) {
 }
 function emulateV15(db) {
   db.exec(
-    'DROP TRIGGER items_one_category_insert; DROP TRIGGER items_one_category_update; DROP TRIGGER transactions_one_category_insert; DROP TRIGGER transactions_one_category_update; PRAGMA user_version=15;',
+    'DROP TRIGGER items_one_category_insert; DROP TRIGGER items_one_category_update; DROP TRIGGER transactions_one_category_insert; DROP TRIGGER transactions_one_category_update; ALTER TABLE loans DROP COLUMN payment_day; ALTER TABLE loans DROP COLUMN direction; PRAGMA user_version=15;',
   );
 }
 test('new transactions choose exactly one category and adding a second category is rejected without financial changes', async (t) => {
@@ -3400,7 +3619,7 @@ test('legacy backups flatten category levels and choose the first label, while m
     legacy.data.categories.map((c) => [c.id, c.name]),
   );
   const backup = await repo.backup();
-  assert.equal(backup.version, 16);
+  assert.equal(backup.version, 18);
   assert.deepEqual(parseBackup(JSON.stringify(backup)), backup);
   backup.data.transactions[0].category_ids_json =
     '["default-expense-0","default-expense-1"]';

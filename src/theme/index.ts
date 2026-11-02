@@ -10,5 +10,8 @@ export const colors = {
   income: '#287D68',
   expense: '#B76553',
   expenseLight: '#FFF1EB',
+  danger: '#A34E49',
+  dangerLight: '#FBEFED',
+  dangerBorder: '#EED4D0',
 };
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };

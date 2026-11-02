@@ -82,6 +82,7 @@ export default function Onboarding() {
           />
           <SecondaryButton
             label="Bỏ tài khoản này"
+            danger
             onPress={() => setBanks((v) => v.filter((x) => x.id !== b.id))}
           />
         </AppCard>

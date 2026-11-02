@@ -16,6 +16,7 @@ import { emptyLedger } from '../database/repository';
 import { FinanceError } from '../services/accounting/ledger';
 import { usePreferences } from '../stores/preferences';
 import type { Snapshot } from '../types/finance';
+import { useLoanReminders } from './useLoanReminders';
 import {
   EmptyState,
   LoadingState,
@@ -24,6 +25,7 @@ import {
 } from '../components/ui';
 
 interface ContextValue {
+  reminderWarning: string | null;
   data: Snapshot;
   repository: FinanceRepository;
   busy: boolean;
@@ -78,6 +80,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     onboarded: false,
   });
   const [repository, setRepository] = useState<FinanceRepository>();
+  const reminderWarning = useLoanReminders(data, !!repository);
   const [error, setError] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -214,7 +217,13 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     );
   return (
     <FinanceContext.Provider
-      value={{ data, repository, busy: busy || refreshFailed, mutate }}
+      value={{
+        data,
+        repository,
+        busy: busy || refreshFailed,
+        mutate,
+        reminderWarning,
+      }}
     >
       {children}
       <Modal

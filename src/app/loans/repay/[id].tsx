@@ -7,7 +7,10 @@ export default function RepayLoan() {
   const { data } = useFinance();
   const loan = data.loans?.find((loan) => loan.id === id);
   return (
-    <ScreenContainer title="Trả nợ" back>
+    <ScreenContainer
+      title={loan?.direction === 'lend' ? 'Thu hồi cho vay' : 'Trả nợ'}
+      back
+    >
       {loan ? (
         <LoanForm loan={loan} />
       ) : (

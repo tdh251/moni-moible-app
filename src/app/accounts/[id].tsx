@@ -140,7 +140,7 @@ export default function AccountDetail() {
       )}
       {loanFlows.length > 0 && (
         <AppCard>
-          <Text style={s.heading}>Vay/mượn trong tài khoản</Text>
+          <Text style={s.heading}>Vay / cho vay trong tài khoản</Text>
           {loanFlows.map((flow) => (
             <Pressable
               key={flow.id}
@@ -157,7 +157,7 @@ export default function AccountDetail() {
             >
               <Text style={s.text}>{flow.title}</Text>
               {flow.exclude_from_balance === 1 && (
-                <Text style={s.muted}>Không cộng vào số dư</Text>
+                <Text style={s.muted}>Không tính vào số dư</Text>
               )}
               <View style={s.between}>
                 <Text style={s.muted}>

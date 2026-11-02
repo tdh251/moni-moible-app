@@ -1,4 +1,8 @@
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 18;
+export const migration18 = `
+ALTER TABLE loans ADD COLUMN payment_day INTEGER CHECK(payment_day IS NULL OR (typeof(payment_day)='integer' AND payment_day BETWEEN 1 AND 31 AND due_at IS NOT NULL));
+PRAGMA user_version=18;
+`;
 export const migration1 = `
 CREATE TABLE accounts (
  id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
@@ -137,6 +141,11 @@ PRAGMA user_version=14;
 export const migration15 = `
 ALTER TABLE transaction_items ADD COLUMN category_ids_json TEXT NOT NULL DEFAULT '[]';
 PRAGMA user_version=15;
+`;
+
+export const migration17 = `
+ALTER TABLE loans ADD COLUMN direction TEXT NOT NULL DEFAULT 'borrow' CHECK(direction IN ('borrow','lend'));
+PRAGMA user_version=17;
 `;
 
 export const migration16 = `

@@ -106,16 +106,19 @@ export function loanBalances(ledger: Ledger): Map<string, number> {
   return balances;
 }
 
-export function totalLoanOutstanding(ledger: Ledger): number {
-  const paid = (ledger.loanPayments ?? []).reduce(
-    (sum, p) => safeAdd(sum, p.amount),
-    0,
+export function totalLoanOutstanding(
+  ledger: Ledger,
+  direction: 'borrow' | 'lend' = 'borrow',
+): number {
+  const loans = (ledger.loans ?? []).filter(
+    (loan) => (loan.direction ?? 'borrow') === direction,
   );
+  const ids = new Set(loans.map((loan) => loan.id));
+  const paid = (ledger.loanPayments ?? [])
+    .filter((p) => ids.has(p.loan_id))
+    .reduce((sum, p) => safeAdd(sum, p.amount), 0);
   return safeAdd(
-    (ledger.loans ?? []).reduce(
-      (sum, loan) => safeAdd(sum, loanTotalAmount(loan)),
-      0,
-    ),
+    loans.reduce((sum, loan) => safeAdd(sum, loanTotalAmount(loan)), 0),
     -paid,
   );
 }
@@ -125,6 +128,12 @@ export function validateLoans(ledger: Ledger): void {
   const loans = new Map<string, Loan>();
   for (const loan of ledger.loans ?? []) {
     ensure(
+      loan.direction === undefined ||
+        loan.direction === 'borrow' ||
+        loan.direction === 'lend',
+      'Loại khoản vay / cho vay không hợp lệ.',
+    );
+    ensure(
       validId(loan.id) && !loans.has(loan.id),
       'ID khoản vay không hợp lệ hoặc bị trùng.',
     );
@@ -132,7 +141,7 @@ export function validateLoans(ledger: Ledger): void {
       typeof loan.lender === 'string' &&
         loan.lender.trim().length > 0 &&
         loan.lender.length <= 100,
-      'Nhập người cho vay từ 1 đến 100 ký tự.',
+      'Nhập người vay / cho vay từ 1 đến 100 ký tự.',
     );
     ensure(
       typeof loan.note === 'string' && loan.note.length <= 4000,
@@ -140,7 +149,7 @@ export function validateLoans(ledger: Ledger): void {
     );
     ensure(
       accounts.has(loan.account_id),
-      'Tài khoản nhận khoản vay không tồn tại.',
+      'Tài khoản của khoản vay / cho vay không tồn tại.',
     );
     ensure(
       validDate(loan.occurred_at) && validDate(loan.created_at),
@@ -157,7 +166,16 @@ export function validateLoans(ledger: Ledger): void {
       loan.due_at === undefined ||
         loan.due_at === null ||
         (validDate(loan.due_at) && loan.due_at >= loan.occurred_at),
-      'Ngày đến hạn phải từ ngày nhận tiền vay trở đi.',
+      'Ngày đến hạn phải từ ngày vay / cho vay trở đi.',
+    );
+    ensure(
+      loan.payment_day === undefined ||
+        loan.payment_day === null ||
+        (Number.isInteger(loan.payment_day) &&
+          loan.payment_day >= 1 &&
+          loan.payment_day <= 31 &&
+          !!loan.due_at),
+      'Ngày trả / thu tiền hằng tháng phải từ 1 đến 31 và chỉ dùng cho khoản có kỳ hạn.',
     );
     parseLoanCosts(loan);
     loans.set(loan.id, loan);
@@ -177,7 +195,7 @@ export function validateLoans(ledger: Ledger): void {
       validDate(payment.occurred_at) &&
         validDate(payment.created_at) &&
         payment.occurred_at >= loan.occurred_at,
-      'Ngày trả nợ phải từ ngày nhận tiền vay trở đi.',
+      'Ngày trả nợ / thu hồi phải từ ngày vay / cho vay trở đi.',
     );
     money(payment.amount);
     loanPaymentTotal(payment);
@@ -189,27 +207,35 @@ export function validateLoans(ledger: Ledger): void {
     paid.set(loan.id, total);
   }
   totalLoanOutstanding(ledger);
+  totalLoanOutstanding(ledger, 'lend');
 }
 
 // These cash movements affect account balances only, never income/expense reports.
 export function loanCashFlows(ledger: Ledger) {
+  const directions = new Map(
+    (ledger.loans ?? []).map((loan) => [loan.id, loan.direction]),
+  );
   return [
     ...(ledger.loans ?? []).map((loan) => ({
       ...loan,
       id: `loan:${loan.id}`,
       loan_id: loan.id,
-      title: `Vay/mượn · ${loan.lender}`,
-      source_account_id: null as string | null,
-      destination_account_id: loan.account_id,
+      title: `${loan.direction === 'lend' ? 'Cho vay' : 'Vay'} · ${loan.lender}`,
+      source_account_id: loan.direction === 'lend' ? loan.account_id : null,
+      destination_account_id:
+        loan.direction === 'lend' ? null : loan.account_id,
       exclude_from_balance: loan.exclude_from_balance ?? 0,
     })),
     ...(ledger.loanPayments ?? []).map((p) => ({
       ...p,
       amount: loanPaymentTotal(p),
       id: `payment:${p.id}`,
-      title: 'Trả nợ',
-      source_account_id: p.account_id,
-      destination_account_id: null as string | null,
+      title:
+        directions.get(p.loan_id) === 'lend' ? 'Thu hồi cho vay' : 'Trả nợ',
+      source_account_id:
+        directions.get(p.loan_id) === 'lend' ? null : p.account_id,
+      destination_account_id:
+        directions.get(p.loan_id) === 'lend' ? p.account_id : null,
       exclude_from_balance: 0,
     })),
   ];

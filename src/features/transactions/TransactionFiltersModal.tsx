@@ -233,6 +233,7 @@ export function TransactionFiltersModal({
                 </View>
                 <SecondaryButton
                   label="Xóa bộ lọc"
+                  danger
                   icon="refresh-outline"
                   onPress={reset}
                 />

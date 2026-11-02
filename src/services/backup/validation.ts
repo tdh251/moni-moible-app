@@ -13,7 +13,25 @@ import {
 
 export interface Backup {
   format: 'monomoney';
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+  version:
+    | 1
+    | 2
+    | 3
+    | 4
+    | 5
+    | 6
+    | 7
+    | 8
+    | 9
+    | 10
+    | 11
+    | 12
+    | 13
+    | 14
+    | 15
+    | 16
+    | 17
+    | 18;
   exported_at: string;
   data: Snapshot;
 }
@@ -72,10 +90,12 @@ export function validateBackup(value: unknown): Backup {
         value.version === 13 ||
         value.version === 14 ||
         value.version === 15 ||
-        value.version === 16) &&
+        value.version === 16 ||
+        value.version === 17 ||
+        value.version === 18) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 16.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 18.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -104,6 +124,18 @@ export function validateBackup(value: unknown): Backup {
   }
   for (const loan of loans) {
     ensure(
+      backupVersion >= 18 ||
+        loan.payment_day === undefined ||
+        loan.payment_day === null,
+      'Bản sao lưu có ngày nhắc hằng tháng phải dùng phiên bản 18.',
+    );
+    ensure(
+      backupVersion >= 17 ||
+        loan.direction === undefined ||
+        loan.direction === 'borrow',
+      'Bản sao lưu có cho vay phải dùng phiên bản 17.',
+    );
+    ensure(
       loan.exclude_from_balance === undefined ||
         flag(loan.exclude_from_balance),
       'Trạng thái không cộng tiền vay không hợp lệ.',
@@ -124,7 +156,7 @@ export function validateBackup(value: unknown): Backup {
     );
   ensure(
     backupVersion >= 9 || (loans.length === 0 && loanPayments.length === 0),
-    'Bản sao lưu có vay/mượn phải dùng phiên bản 9.',
+    'Bản sao lưu có vay phải dùng phiên bản 9.',
   );
   ensure(
     backupVersion >= 8 || tags.length === 0,
@@ -280,6 +312,8 @@ export function validateBackup(value: unknown): Backup {
     accounts,
     loans: loans.map((loan) => ({
       ...loan,
+      direction: loan.direction === undefined ? 'borrow' : loan.direction,
+      payment_day: loan.payment_day === undefined ? null : loan.payment_day,
       due_at: loan.due_at ?? null,
       costs_json: loan.costs_json ?? '[]',
       exclude_from_balance: loan.exclude_from_balance ?? 0,
@@ -331,7 +365,7 @@ export function validateBackup(value: unknown): Backup {
   validateLedger(normalized);
   return {
     format: 'monomoney',
-    version: 16,
+    version: 18,
     exported_at: value.exported_at,
     data: {
       ...normalized,

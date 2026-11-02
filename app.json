@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Moni – Sổ chi tiêu cá nhân",
-    "slug": "moni",
+    "slug": "money-manager",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/brand/icon.png",
@@ -28,6 +28,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-notifications",
       "expo-router",
       [
         "expo-splash-screen",

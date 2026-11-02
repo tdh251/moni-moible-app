@@ -49,6 +49,8 @@ import {
   migration14,
   migration15,
   migration16,
+  migration17,
+  migration18,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -83,6 +85,8 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 14) await db.execAsync(migration14);
   if (row.user_version < 15) await db.execAsync(migration15);
   if (row.user_version < 16) await db.execAsync(migration16);
+  if (row.user_version < 17) await db.execAsync(migration17);
+  if (row.user_version < 18) await db.execAsync(migration18);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
@@ -182,7 +186,7 @@ async function insertItem(db: Connection, i: TransactionItem) {
 }
 async function insertLoan(db: Connection, loan: Loan) {
   await db.runAsync(
-    'INSERT INTO loans (id,lender,amount,account_id,note,occurred_at,created_at,due_at,costs_json,exclude_from_balance) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO loans (id,lender,amount,account_id,note,occurred_at,created_at,due_at,costs_json,exclude_from_balance,direction,payment_day) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
     loan.id,
     loan.lender,
     loan.amount,
@@ -193,6 +197,8 @@ async function insertLoan(db: Connection, loan: Loan) {
     loan.due_at ?? null,
     loan.costs_json ?? '[]',
     loan.exclude_from_balance ?? 0,
+    loan.direction ?? 'borrow',
+    loan.payment_day ?? null,
   );
 }
 async function insertLoanPayment(db: Connection, p: LoanPayment) {
@@ -474,11 +480,25 @@ export class FinanceRepository {
       ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
       ensure(
         data.accounts.some((a) => a.id === loan.account_id && !a.is_archived),
-        'Chọn tài khoản nhận tiền đang hoạt động.',
+        'Chọn tài khoản đang hoạt động cho khoản vay / cho vay.',
       );
       const saved = { ...loan, lender: loan.lender.trim() };
       validateLedger({ ...data, loans: [...(data.loans ?? []), saved] });
       await insertLoan(db, saved);
+    });
+  }
+  setLoanPaymentDay(id: string, day: number | null) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      const loan = data.loans?.find((row) => row.id === id);
+      ensure(loan, 'Khoản vay / cho vay không còn tồn tại.');
+      validateLedger({
+        ...data,
+        loans: data.loans?.map((row) =>
+          row.id === id ? { ...row, payment_day: day } : row,
+        ),
+      });
+      await db.runAsync('UPDATE loans SET payment_day=? WHERE id=?', day, id);
     });
   }
   repayLoan(payment: LoanPayment) {
@@ -489,7 +509,7 @@ export class FinanceRepository {
         data.accounts.some(
           (a) => a.id === payment.account_id && !a.is_archived,
         ),
-        'Chọn tài khoản trả nợ đang hoạt động.',
+        'Chọn tài khoản đang hoạt động để trả nợ / thu hồi.',
       );
       validateLedger({
         ...data,
@@ -549,7 +569,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 16,
+      version: 18,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));

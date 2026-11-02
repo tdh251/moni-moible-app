@@ -123,7 +123,15 @@ export function Dropdown(props: DropdownProps) {
                     accessibilityLabel={
                       'Xóa lựa chọn ' + label.toLocaleLowerCase('vi-VN')
                     }
-                    style={[styles.option, { paddingHorizontal: 12 }]}
+                    style={[
+                      styles.option,
+                      {
+                        paddingHorizontal: 12,
+                        backgroundColor: colors.dangerLight,
+                        borderWidth: 1,
+                        borderColor: colors.dangerBorder,
+                      },
+                    ]}
                     onPress={() => {
                       if (props.multiple) props.onChange([]);
                     }}
@@ -131,9 +139,9 @@ export function Dropdown(props: DropdownProps) {
                     <Ionicons
                       name="close-circle-outline"
                       size={20}
-                      color={colors.primary}
+                      color={colors.danger}
                     />
-                    <Text style={[styles.text, { color: colors.primary }]}>
+                    <Text style={[styles.text, { color: colors.danger }]}>
                       Xóa lựa chọn
                     </Text>
                   </Pressable>

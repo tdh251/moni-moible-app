@@ -105,6 +105,11 @@ export const s = StyleSheet.create({
     textAlign: 'center',
   },
   secondary: { backgroundColor: colors.light },
+  danger: {
+    backgroundColor: colors.dangerLight,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+  },
   field: {
     minHeight: 52,
     borderWidth: 1,
@@ -288,12 +293,14 @@ export function PrimaryButton({
       onPress={onPress}
       style={({ pressed }) => [
         s.button,
-        danger && { backgroundColor: colors.expense },
+        danger && s.danger,
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
     >
-      {icon && <Icon name={icon} color="white" />}
-      <Text style={s.buttonText}>{label}</Text>
+      {icon && <Icon name={icon} color={danger ? colors.danger : 'white'} />}
+      <Text style={[s.buttonText, danger && { color: colors.danger }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -312,16 +319,17 @@ export function SecondaryButton({
       style={({ pressed }) => [
         s.button,
         s.secondary,
+        danger && s.danger,
         { opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
       ]}
     >
       {icon && (
-        <Icon name={icon} color={danger ? colors.expense : colors.primary} />
+        <Icon name={icon} color={danger ? colors.danger : colors.primary} />
       )}
       <Text
         style={[
           s.buttonText,
-          { color: danger ? colors.expense : colors.primary },
+          { color: danger ? colors.danger : colors.primary },
         ]}
       >
         {label}

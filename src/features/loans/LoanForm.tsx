@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -25,8 +25,18 @@ import {
 } from '../../services/loans';
 import { colors } from '../../theme';
 import type { Loan } from '../../types/finance';
+import { LoanReminderFields } from './LoanReminderFields';
+import { requestLoanReminderPermission } from '../../services/loan-reminders/notifications';
 
-export function LoanForm({ loan }: { loan?: Loan }) {
+export function LoanForm({
+  loan,
+  direction = 'borrow',
+}: {
+  loan?: Loan;
+  direction?: 'borrow' | 'lend';
+}) {
+  const lending = (loan?.direction ?? direction) === 'lend';
+  const excludeLabel = 'Không tính vào số dư';
   const { data, mutate, busy } = useFinance();
   const accounts = data.accounts.filter((a) => !a.is_archived);
   const [lender, setLender] = useState('');
@@ -37,6 +47,8 @@ export function LoanForm({ loan }: { loan?: Loan }) {
   const [excludeFromBalance, setExcludeFromBalance] = useState(false);
   const [date, setDate] = useState(new Date());
   const [term, setTerm] = useState('none');
+  const [paymentDay, setPaymentDay] = useState('');
+  const [saving, setSaving] = useState(false);
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [costs, setCosts] = useState<
     { id: string; name: string; amount: string }[]
@@ -81,6 +93,8 @@ export function LoanForm({ loan }: { loan?: Loan }) {
     }
   }
   const save = async () => {
+    if (saving || busy) return;
+    setSaving(true);
     try {
       const now = new Date().toISOString();
       const base = {
@@ -91,9 +105,13 @@ export function LoanForm({ loan }: { loan?: Loan }) {
         created_at: now,
       };
       if (!loan && term === 'fixed')
-        ensure(dueDate, 'Chọn ngày đến hạn cho khoản vay có kỳ hạn.');
+        ensure(dueDate, 'Chọn ngày đến hạn cho khoản vay / cho vay có kỳ hạn.');
       const due = dueDate ? new Date(dueDate) : null;
       due?.setHours(23, 59, 59, 999);
+      if (!loan && term === 'fixed' && paymentDay) {
+        const warning = await requestLoanReminderPermission();
+        if (warning) Alert.alert('Nhắc lịch trên máy', warning);
+      }
       const saved = loan
         ? await mutate((repo) =>
             repo.repayLoan({
@@ -107,6 +125,9 @@ export function LoanForm({ loan }: { loan?: Loan }) {
         : await mutate((repo) =>
             repo.addLoan({
               ...base,
+              direction,
+              payment_day:
+                term === 'fixed' && paymentDay ? Number(paymentDay) : null,
               lender,
               note,
               exclude_from_balance: excludeFromBalance ? 1 : 0,
@@ -117,6 +138,8 @@ export function LoanForm({ loan }: { loan?: Loan }) {
       if (saved) router.back();
     } catch (error) {
       showError(error);
+    } finally {
+      setSaving(false);
     }
   };
   return (
@@ -124,10 +147,10 @@ export function LoanForm({ loan }: { loan?: Loan }) {
       {loan && (
         <AppCard>
           <Text style={s.text}>{loan.lender}</Text>
-          <Text style={s.muted}>Còn nợ</Text>
+          <Text style={s.muted}>{lending ? 'Cần thu hồi' : 'Còn nợ'}</Text>
           <Amount value={remaining} />
           <SecondaryButton
-            label="Trả nợ toàn bộ"
+            label={lending ? 'Thu hồi toàn bộ' : 'Trả nợ toàn bộ'}
             disabled={busy || remaining === 0}
             onPress={() => setAmount(String(remaining))}
           />
@@ -136,7 +159,7 @@ export function LoanForm({ loan }: { loan?: Loan }) {
       <AppCard>
         {!loan && (
           <Field
-            label="Người / đơn vị cho vay"
+            label={lending ? 'Người / đơn vị vay' : 'Người / đơn vị cho vay'}
             value={lender}
             onChangeText={setLender}
             maxLength={100}
@@ -144,26 +167,41 @@ export function LoanForm({ loan }: { loan?: Loan }) {
           />
         )}
         <AmountInput
-          label={loan ? 'Số tiền trả (VND)' : 'Số tiền vay/mượn (VND)'}
+          label={
+            lending
+              ? loan
+                ? 'Số tiền thu hồi (VND)'
+                : 'Số tiền cho vay (VND)'
+              : loan
+                ? 'Số tiền trả (VND)'
+                : 'Số tiền vay (VND)'
+          }
           value={amount}
           onChangeText={setAmount}
         />
         {fullRepayment && (
           <>
             <AmountInput
-              label="Phụ phí tất toán phát sinh thêm (VND)"
+              label={
+                lending
+                  ? 'Phụ phí tất toán thu thêm (VND)'
+                  : 'Phụ phí tất toán phát sinh thêm (VND)'
+              }
               value={settlementFee}
               onChangeText={setSettlementFee}
             />
             <Text style={s.muted}>
-              Không bắt buộc. Phụ phí được trừ cùng tiền trả nợ từ tài khoản đã
-              chọn.
+              {lending
+                ? 'Không bắt buộc. Phụ phí được cộng cùng tiền thu hồi vào tài khoản đã chọn.'
+                : 'Không bắt buộc. Phụ phí được trừ cùng tiền trả nợ từ tài khoản đã chọn.'}
             </Text>
           </>
         )}
         {loan && repaymentTotal !== undefined && (
           <View style={{ gap: 6 }}>
-            <Text style={s.label}>Tổng trừ tài khoản</Text>
+            <Text style={s.label}>
+              {lending ? 'Tổng cộng vào tài khoản' : 'Tổng trừ tài khoản'}
+            </Text>
             <Amount value={repaymentTotal} />
           </View>
         )}
@@ -171,13 +209,21 @@ export function LoanForm({ loan }: { loan?: Loan }) {
           accounts={accounts}
           value={account}
           onChange={setAccount}
-          label={loan ? 'Tài khoản trả nợ' : 'Tài khoản nhận tiền'}
+          label={
+            lending
+              ? loan
+                ? 'Tài khoản nhận tiền thu hồi'
+                : 'Tài khoản xuất tiền'
+              : loan
+                ? 'Tài khoản trả nợ'
+                : 'Tài khoản nhận tiền'
+          }
           variant="dropdown"
         />
         {!loan && (
           <Pressable
             accessibilityRole="checkbox"
-            accessibilityLabel="Không cộng tiền vay vào tài khoản nhận"
+            accessibilityLabel={excludeLabel}
             accessibilityState={{ checked: excludeFromBalance, disabled: busy }}
             disabled={busy}
             onPress={() => setExcludeFromBalance((value) => !value)}
@@ -191,13 +237,11 @@ export function LoanForm({ loan }: { loan?: Loan }) {
               size={26}
               color={excludeFromBalance ? colors.primary : colors.muted}
             />
-            <Text style={[s.text, { flex: 1 }]}>
-              Không cộng tiền vay vào tài khoản nhận
-            </Text>
+            <Text style={[s.text, { flex: 1 }]}>{excludeLabel}</Text>
           </Pressable>
         )}
         <SecondaryButton
-          label={`${loan ? 'Ngày trả nợ' : 'Ngày nhận tiền'}: ${date.toLocaleDateString('vi-VN')}`}
+          label={`${lending ? (loan ? 'Ngày thu hồi' : 'Ngày cho vay') : loan ? 'Ngày trả nợ' : 'Ngày nhận tiền'}: ${date.toLocaleDateString('vi-VN')}`}
           icon="calendar-outline"
           onPress={() => setPicker('date')}
           disabled={busy}
@@ -219,11 +263,17 @@ export function LoanForm({ loan }: { loan?: Loan }) {
           />
         )}
         <Text style={s.muted}>
-          {loan
-            ? 'Tiền trả nợ được trừ từ tài khoản bạn chọn.'
-            : excludeFromBalance
-              ? 'Chỉ ghi nhận khoản nợ; số dư tài khoản nhận giữ nguyên.'
-              : 'Chỉ tiền gốc được cộng vào tài khoản nhận tiền.'}
+          {lending
+            ? loan
+              ? 'Tiền thu hồi được cộng vào tài khoản bạn chọn.'
+              : excludeFromBalance
+                ? 'Chỉ ghi nhận khoản cần thu hồi; số dư tài khoản giữ nguyên.'
+                : 'Tiền gốc được trừ từ tài khoản xuất tiền.'
+            : loan
+              ? 'Tiền trả nợ được trừ từ tài khoản bạn chọn.'
+              : excludeFromBalance
+                ? 'Chỉ ghi nhận khoản nợ; số dư tài khoản nhận giữ nguyên.'
+                : 'Chỉ tiền gốc được cộng vào tài khoản nhận tiền.'}
         </Text>
       </AppCard>
       {!loan && (
@@ -238,26 +288,36 @@ export function LoanForm({ loan }: { loan?: Loan }) {
             ]}
           />
           {term === 'fixed' && (
-            <SecondaryButton
-              label={
-                dueDate
-                  ? `Ngày đến hạn: ${dueDate.toLocaleDateString('vi-VN')}`
-                  : 'Chọn ngày đến hạn'
-              }
-              icon="calendar-outline"
-              disabled={busy}
-              onPress={() => setPicker('due')}
-            />
+            <>
+              <SecondaryButton
+                label={
+                  dueDate
+                    ? `Ngày đến hạn: ${dueDate.toLocaleDateString('vi-VN')}`
+                    : 'Chọn ngày đến hạn'
+                }
+                icon="calendar-outline"
+                disabled={busy}
+                onPress={() => setPicker('due')}
+              />
+              <LoanReminderFields
+                value={paymentDay}
+                onChange={setPaymentDay}
+                lending={lending}
+              />
+            </>
           )}
-          <Text style={s.heading}>Chi phí vay</Text>
+          <Text style={s.heading}>
+            {lending ? 'Lãi / phí cần thu' : 'Chi phí vay'}
+          </Text>
           <Text style={s.muted}>
-            Nhập tổng tiền lãi, bảo hiểm hoặc phí theo thỏa thuận (VND). Chi phí
-            được cộng vào tổng khoản vay phải trả.
+            {lending
+              ? 'Nhập tổng tiền lãi hoặc phí người vay cần trả theo thỏa thuận (VND). Khoản này được cộng vào tổng cần thu hồi.'
+              : 'Nhập tổng tiền lãi, bảo hiểm hoặc phí theo thỏa thuận (VND). Chi phí được cộng vào tổng khoản vay phải trả.'}
           </Text>
           {costs.map((cost, index) => (
             <View key={cost.id} style={{ gap: 10 }}>
               <Field
-                label={`Tên chi phí ${index + 1}`}
+                label={`${lending ? 'Tên lãi / phí' : 'Tên chi phí'} ${index + 1}`}
                 value={cost.name}
                 maxLength={100}
                 onChangeText={(name) =>
@@ -279,7 +339,8 @@ export function LoanForm({ loan }: { loan?: Loan }) {
                 }
               />
               <SecondaryButton
-                label="Xóa chi phí"
+                label={lending ? 'Xóa lãi / phí' : 'Xóa chi phí'}
+                danger
                 icon="trash-outline"
                 disabled={busy}
                 onPress={() =>
@@ -292,7 +353,7 @@ export function LoanForm({ loan }: { loan?: Loan }) {
           ))}
           {costs.length < 50 && (
             <Dropdown
-              label="Thêm chi phí"
+              label={lending ? 'Thêm lãi / phí' : 'Thêm chi phí'}
               placeholder="Thêm lãi, bảo hiểm, phí khác"
               value=""
               options={[
@@ -321,9 +382,15 @@ export function LoanForm({ loan }: { loan?: Loan }) {
       )}
       {!loan && total !== undefined && (
         <AppCard>
-          <Text style={s.label}>Tổng khoản vay (gốc + chi phí)</Text>
+          <Text style={s.label}>
+            {lending
+              ? 'Tổng cần thu hồi (gốc + lãi / phí)'
+              : 'Tổng khoản vay (gốc + chi phí)'}
+          </Text>
           <Amount value={total} />
-          <Text style={s.muted}>Cộng vào tài khoản nhận</Text>
+          <Text style={s.muted}>
+            {lending ? 'Trừ từ tài khoản xuất tiền' : 'Cộng vào tài khoản nhận'}
+          </Text>
           <Amount value={excludeFromBalance ? 0 : parseAmount(amount)} />
         </AppCard>
       )}
@@ -341,14 +408,21 @@ export function LoanForm({ loan }: { loan?: Loan }) {
       )}
       <PrimaryButton
         label={
-          loan
-            ? fullRepayment
-              ? 'Lưu trả nợ toàn bộ'
-              : 'Lưu trả nợ'
-            : 'Lưu khoản vay/mượn'
+          lending
+            ? loan
+              ? fullRepayment
+                ? 'Lưu thu hồi toàn bộ'
+                : 'Lưu thu hồi'
+              : 'Lưu khoản cho vay'
+            : loan
+              ? fullRepayment
+                ? 'Lưu trả nợ toàn bộ'
+                : 'Lưu trả nợ'
+              : 'Lưu khoản vay'
         }
         disabled={
           busy ||
+          saving ||
           !account ||
           (loan ? remaining <= 0 : !lender.trim()) ||
           !amount.trim()
