@@ -1,57 +1,50 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Linking, Text } from 'react-native';
 import type { Loan } from '../../types/finance';
-import {
-  AppCard,
-  PrimaryButton,
-  SecondaryButton,
-  s,
-} from '../../components/ui';
-import { useFinance } from '../../hooks/finance';
+import { AppCard, SecondaryButton, s } from '../../components/ui';
+import { showError, useFinance } from '../../hooks/finance';
 import { requestLoanReminderPermission } from '../../services/loan-reminders/notifications';
 import { LoanReminderFields } from './LoanReminderFields';
 
 export function LoanReminderCard({ loan }: { loan: Loan }) {
   const { mutate, busy, reminderWarning } = useFinance();
-  const [day, setDay] = useState(
-    loan.payment_day ? String(loan.payment_day) : '',
-  );
+  const day = loan.payment_day ? String(loan.payment_day) : '';
+  const timeMinutes = loan.payment_time_minutes ?? 540;
   const [saving, setSaving] = useState(false);
-  const save = async () => {
-    if (saving || busy) return;
+  const savingRef = useRef(false);
+  const save = async (nextDay: string, nextTime: number) => {
+    if (savingRef.current || busy) return;
+    if (nextDay === day && nextTime === timeMinutes) return;
+    savingRef.current = true;
     setSaving(true);
     try {
-      if (day) {
-        const warning = await requestLoanReminderPermission();
-        if (warning) Alert.alert('Nhắc lịch trên máy', warning);
-      }
-      if (
-        await mutate((repo) =>
-          repo.setLoanPaymentDay(loan.id, day ? Number(day) : null),
-        )
-      )
-        Alert.alert(
-          'Đã lưu',
-          day
-            ? `Ngày nhắc: ${day} hằng tháng, lúc 09:00.`
-            : 'Đã tắt nhắc hằng tháng.',
-        );
+      const warning =
+        nextDay && !day ? await requestLoanReminderPermission() : null;
+      const saved = await mutate((repo) =>
+        repo.setLoanPaymentDay(
+          loan.id,
+          nextDay ? Number(nextDay) : null,
+          nextTime,
+        ),
+      );
+      if (saved && warning) Alert.alert('Nhắc lịch trên máy', warning);
+    } catch (error) {
+      showError(error);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
   return (
     <AppCard>
       <Text style={s.heading}>Lịch nhắc hằng tháng</Text>
-      <Text style={s.muted}>
-        {loan.payment_day
-          ? `Đã lưu: ngày ${loan.payment_day} hằng tháng · 09:00`
-          : 'Chưa bật nhắc hằng tháng.'}
-      </Text>
       <LoanReminderFields
         value={day}
-        onChange={setDay}
+        onChange={(value) => void save(value, timeMinutes)}
         lending={loan.direction === 'lend'}
+        timeMinutes={timeMinutes}
+        onTimeChange={(value) => void save(day, value)}
+        disabled={saving || busy}
       />
       {!!reminderWarning && (
         <>
@@ -70,11 +63,6 @@ export function LoanReminderCard({ loan }: { loan: Loan }) {
           />
         </>
       )}
-      <PrimaryButton
-        label="Lưu lịch nhắc"
-        disabled={saving || busy}
-        onPress={() => void save()}
-      />
     </AppCard>
   );
 }

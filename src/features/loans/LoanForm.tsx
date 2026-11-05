@@ -40,6 +40,7 @@ export function LoanForm({
   const { data, mutate, busy } = useFinance();
   const accounts = data.accounts.filter((a) => !a.is_archived);
   const [lender, setLender] = useState('');
+  const [lenderFocused, setLenderFocused] = useState(false);
   const [amount, setAmount] = useState('');
   const [settlementFee, setSettlementFee] = useState('');
   const [account, setAccount] = useState('');
@@ -48,12 +49,25 @@ export function LoanForm({
   const [date, setDate] = useState(new Date());
   const [term, setTerm] = useState('none');
   const [paymentDay, setPaymentDay] = useState('');
+  const [paymentTimeMinutes, setPaymentTimeMinutes] = useState(540);
   const [saving, setSaving] = useState(false);
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [costs, setCosts] = useState<
     { id: string; name: string; amount: string }[]
   >([]);
   const [picker, setPicker] = useState<'date' | 'time' | 'due' | null>(null);
+  const lenderSuggestions = lenderFocused && lender.trim().length > 0
+    ? [...new Map(
+        [...(data.loans ?? [])]
+          .filter((item) => (item.direction ?? 'borrow') === direction)
+          .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+          .map((item) => [item.lender.trim().toLocaleLowerCase('vi-VN'), item.lender.trim()]),
+      ).values()]
+        .filter((name) =>
+          name.toLocaleLowerCase('vi-VN').includes(lender.trim().toLocaleLowerCase('vi-VN')),
+        )
+        .slice(0, 5)
+    : [];
   const remaining = loan ? loanOutstanding(loan, data.loanPayments ?? []) : 0;
   const fullRepayment =
     !!loan &&
@@ -128,6 +142,7 @@ export function LoanForm({
               direction,
               payment_day:
                 term === 'fixed' && paymentDay ? Number(paymentDay) : null,
+              payment_time_minutes: paymentTimeMinutes,
               lender,
               note,
               exclude_from_balance: excludeFromBalance ? 1 : 0,
@@ -158,13 +173,61 @@ export function LoanForm({
       )}
       <AppCard>
         {!loan && (
-          <Field
-            label={lending ? 'Người / đơn vị vay' : 'Người / đơn vị cho vay'}
-            value={lender}
-            onChangeText={setLender}
-            maxLength={100}
-            placeholder="Ví dụ: Anh Minh"
-          />
+          <View style={{ position: 'relative', zIndex: 20, elevation: 20 }}>
+            <Field
+              label={lending ? 'Người / đơn vị vay' : 'Người / đơn vị cho vay'}
+              value={lender}
+              onChangeText={setLender}
+              onFocus={() => setLenderFocused(true)}
+              onBlur={() => setLenderFocused(false)}
+              maxLength={100}
+              placeholder="Ví dụ: Anh Minh"
+            />
+            {lenderSuggestions.length > 0 && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 84,
+                  left: 0,
+                  right: 0,
+                  zIndex: 30,
+                  elevation: 30,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  shadowColor: '#000',
+                  shadowOpacity: 0.16,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 5 },
+                }}
+              >
+                {lenderSuggestions.map((name, index) => (
+                  <Pressable
+                    key={name.toLocaleLowerCase('vi-VN')}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Chọn ${name}`}
+                    onPressIn={() => {
+                      setLender(name);
+                      setLenderFocused(false);
+                    }}
+                    style={({ pressed }) => ({
+                      minHeight: 48,
+                      justifyContent: 'center',
+                      paddingHorizontal: 14,
+                      backgroundColor: pressed ? colors.light : colors.card,
+                      borderBottomWidth: index < lenderSuggestions.length - 1 ? 1 : 0,
+                      borderBottomColor: colors.border,
+                      borderRadius:
+                        index === lenderSuggestions.length - 1 ? 14 : 0,
+                    })}
+                  >
+                    <Text style={s.text}>{name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
         )}
         <AmountInput
           label={
@@ -303,6 +366,9 @@ export function LoanForm({
                 value={paymentDay}
                 onChange={setPaymentDay}
                 lending={lending}
+                timeMinutes={paymentTimeMinutes}
+                onTimeChange={setPaymentTimeMinutes}
+                disabled={saving || busy}
               />
             </>
           )}

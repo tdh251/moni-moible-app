@@ -68,6 +68,7 @@ export interface LoanCost {
   amount: number;
 }
 export interface Loan {
+  payment_time_minutes?: number;
   payment_day?: number | null;
   direction?: 'borrow' | 'lend';
   exclude_from_balance?: 0 | 1;

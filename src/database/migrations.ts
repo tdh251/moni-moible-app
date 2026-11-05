@@ -1,4 +1,8 @@
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
+export const migration19 = `
+ALTER TABLE loans ADD COLUMN payment_time_minutes INTEGER NOT NULL DEFAULT 540 CHECK(typeof(payment_time_minutes)='integer' AND payment_time_minutes BETWEEN 0 AND 1439);
+PRAGMA user_version=19;
+`;
 export const migration18 = `
 ALTER TABLE loans ADD COLUMN payment_day INTEGER CHECK(payment_day IS NULL OR (typeof(payment_day)='integer' AND payment_day BETWEEN 1 AND 31 AND due_at IS NOT NULL));
 PRAGMA user_version=18;

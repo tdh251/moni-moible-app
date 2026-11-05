@@ -51,6 +51,7 @@ import {
   migration16,
   migration17,
   migration18,
+  migration19,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -87,6 +88,7 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 16) await db.execAsync(migration16);
   if (row.user_version < 17) await db.execAsync(migration17);
   if (row.user_version < 18) await db.execAsync(migration18);
+  if (row.user_version < 19) await db.execAsync(migration19);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
@@ -186,7 +188,7 @@ async function insertItem(db: Connection, i: TransactionItem) {
 }
 async function insertLoan(db: Connection, loan: Loan) {
   await db.runAsync(
-    'INSERT INTO loans (id,lender,amount,account_id,note,occurred_at,created_at,due_at,costs_json,exclude_from_balance,direction,payment_day) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO loans (id,lender,amount,account_id,note,occurred_at,created_at,due_at,costs_json,exclude_from_balance,direction,payment_day,payment_time_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
     loan.id,
     loan.lender,
     loan.amount,
@@ -199,6 +201,7 @@ async function insertLoan(db: Connection, loan: Loan) {
     loan.exclude_from_balance ?? 0,
     loan.direction ?? 'borrow',
     loan.payment_day ?? null,
+    loan.payment_time_minutes ?? 540,
   );
 }
 async function insertLoanPayment(db: Connection, p: LoanPayment) {
@@ -487,18 +490,29 @@ export class FinanceRepository {
       await insertLoan(db, saved);
     });
   }
-  setLoanPaymentDay(id: string, day: number | null) {
+  setLoanPaymentDay(id: string, day: number | null, timeMinutes?: number) {
     return this.write(async (db) => {
       const data = await readSnapshot(db);
       const loan = data.loans?.find((row) => row.id === id);
       ensure(loan, 'Khoản vay / cho vay không còn tồn tại.');
+      const time =
+        timeMinutes === undefined
+          ? (loan.payment_time_minutes ?? 540)
+          : timeMinutes;
       validateLedger({
         ...data,
         loans: data.loans?.map((row) =>
-          row.id === id ? { ...row, payment_day: day } : row,
+          row.id === id
+            ? { ...row, payment_day: day, payment_time_minutes: time }
+            : row,
         ),
       });
-      await db.runAsync('UPDATE loans SET payment_day=? WHERE id=?', day, id);
+      await db.runAsync(
+        'UPDATE loans SET payment_day=?,payment_time_minutes=? WHERE id=?',
+        day,
+        time,
+        id,
+      );
     });
   }
   repayLoan(payment: LoanPayment) {
@@ -569,7 +583,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 18,
+      version: 19,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));

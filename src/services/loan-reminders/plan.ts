@@ -10,7 +10,7 @@ export interface LoanReminder {
   body: string;
 }
 
-// Local calendar dates preserve 09:00 across daylight-saving changes.
+// Build each occurrence in local time so the selected wall-clock time is preserved.
 export function loanReminderDates(
   loan: Loan,
   now: Date,
@@ -35,7 +35,16 @@ export function loanReminderDates(
       loan.payment_day,
       new Date(year, month + 1, 0).getDate(),
     );
-    const date = new Date(year, month, day, 9, 0, 0, 0);
+    const minutes = loan.payment_time_minutes ?? 540;
+    const date = new Date(
+      year,
+      month,
+      day,
+      Math.floor(minutes / 60),
+      minutes % 60,
+      0,
+      0,
+    );
     if (date > end || !Number.isFinite(date.getTime())) break;
     if (date > now && date >= start) dates.push(date);
     month++;

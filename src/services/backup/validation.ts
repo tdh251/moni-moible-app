@@ -31,7 +31,8 @@ export interface Backup {
     | 15
     | 16
     | 17
-    | 18;
+    | 18
+    | 19;
   exported_at: string;
   data: Snapshot;
 }
@@ -92,10 +93,11 @@ export function validateBackup(value: unknown): Backup {
         value.version === 15 ||
         value.version === 16 ||
         value.version === 17 ||
-        value.version === 18) &&
+        value.version === 18 ||
+        value.version === 19) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 18.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 19.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -123,6 +125,12 @@ export function validateBackup(value: unknown): Backup {
     );
   }
   for (const loan of loans) {
+    ensure(
+      backupVersion >= 19 ||
+        loan.payment_time_minutes === undefined ||
+        loan.payment_time_minutes === 540,
+      'Bản sao lưu có giờ nhắc tùy chọn phải dùng phiên bản 19.',
+    );
     ensure(
       backupVersion >= 18 ||
         loan.payment_day === undefined ||
@@ -314,6 +322,10 @@ export function validateBackup(value: unknown): Backup {
       ...loan,
       direction: loan.direction === undefined ? 'borrow' : loan.direction,
       payment_day: loan.payment_day === undefined ? null : loan.payment_day,
+      payment_time_minutes:
+        loan.payment_time_minutes === undefined
+          ? 540
+          : loan.payment_time_minutes,
       due_at: loan.due_at ?? null,
       costs_json: loan.costs_json ?? '[]',
       exclude_from_balance: loan.exclude_from_balance ?? 0,
@@ -365,7 +377,7 @@ export function validateBackup(value: unknown): Backup {
   validateLedger(normalized);
   return {
     format: 'monomoney',
-    version: 18,
+    version: 19,
     exported_at: value.exported_at,
     data: {
       ...normalized,

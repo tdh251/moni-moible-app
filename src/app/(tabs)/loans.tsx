@@ -1,49 +1,78 @@
-import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
-import { useScrollAddButton } from '../../hooks/useScrollAddButton';
-import { useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
 import {
-  Amount,
   AppCard,
   Choices,
   EmptyState,
   ScreenContainer,
   s,
+  Amount,
 } from '../../components/ui';
+import { useScrollAddButton } from '../../hooks/useScrollAddButton';
 import { useFinance } from '../../hooks/finance';
-import { colors } from '../../theme';
 import {
   loanBalances,
-  totalLoanOutstanding,
   loanMonthlyPayment,
+  totalLoanOutstanding,
 } from '../../services/loans';
+import { LoanCounterpartyGroup } from '../../features/loans/LoanCounterpartyGroup';
+import type { Loan } from '../../types/finance';
+
+type LoanEntry = Loan & {
+  remaining: number;
+  monthly: ReturnType<typeof loanMonthlyPayment>;
+};
+type LoanGroup = { key: string; name: string; loans: LoanEntry[]; remaining: number };
+
 export default function Loans() {
   const { data, reminderWarning } = useFinance();
   const [status, setStatus] = useState('');
   const [direction, setDirection] = useState('borrow');
   const lending = direction === 'lend';
-  const matchingLoans = (data.loans ?? []).filter(
-    (loan) => (loan.direction ?? 'borrow') === direction,
+  const matchingLoans = useMemo(
+    () => (data.loans ?? []).filter((loan) => (loan.direction ?? 'borrow') === direction),
+    [data.loans, direction],
   );
   const { addButtonVisible, handleScroll } = useScrollAddButton();
-  const balances = loanBalances(data);
-  const loans = matchingLoans
-    .map((loan) => ({
-      ...loan,
-      remaining: balances.get(loan.id) ?? 0,
-      monthly: loanMonthlyPayment(loan),
-    }))
-    .filter(
-      (loan) =>
-        status === '' ||
-        (status === 'open' ? loan.remaining > 0 : loan.remaining === 0),
-    );
+  const balances = useMemo(() => loanBalances(data), [data]);
+  const groups = useMemo(() => {
+    const byCounterparty = new Map<string, LoanGroup>();
+    for (const loan of matchingLoans) {
+      const entry: LoanEntry = {
+        ...loan,
+        remaining: balances.get(loan.id) ?? 0,
+        monthly: loanMonthlyPayment(loan),
+      };
+      if (
+        status !== '' &&
+        (status === 'open' ? entry.remaining <= 0 : entry.remaining !== 0)
+      )
+        continue;
+      const name = loan.lender.trim();
+      const key = name.toLocaleLowerCase('vi-VN');
+      const existing = byCounterparty.get(key);
+      if (existing) {
+        existing.loans.push(entry);
+        existing.remaining += entry.remaining;
+      } else {
+        byCounterparty.set(key, { key, name, loans: [entry], remaining: entry.remaining });
+      }
+    }
+    return [...byCounterparty.values()]
+      .map((group) => ({
+        ...group,
+        loans: group.loans.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [matchingLoans, balances, status]);
+
   return (
     <ScreenContainer title="Khoản vay" scroll={false}>
       <FlatList
-        data={loans}
-        keyExtractor={(loan) => loan.id}
+        data={groups}
+        keyExtractor={(group) => group.key}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -67,10 +96,6 @@ export default function Loans() {
                 value={totalLoanOutstanding(data, lending ? 'lend' : 'borrow')}
                 style={{ fontSize: 30, lineHeight: 42 }}
               />
-              <Text style={s.muted}>
-                {matchingLoans.length}{' '}
-                {lending ? 'khoản cho vay' : 'khoản vay'}
-              </Text>
             </AppCard>
             <Choices
               value={status}
@@ -83,88 +108,20 @@ export default function Loans() {
             />
           </View>
         }
-        renderItem={({ item: loan }) => (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() =>
-              router.push({ pathname: '/loans/[id]', params: { id: loan.id } })
-            }
-          >
-            <AppCard>
-              <View style={s.between}>
-                <Text style={[s.text, { flex: 1 }]}>{loan.lender}</Text>
-                <View
-                  style={{
-                    maxWidth: '50%',
-                    flexShrink: 1,
-                    borderRadius: 10,
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    backgroundColor:
-                      loan.remaining > 0 ? colors.expenseLight : colors.light,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      lineHeight: 18,
-                      fontWeight: '600',
-                      textAlign: 'center',
-                      color:
-                        loan.remaining > 0 ? colors.danger : colors.primary,
-                    }}
-                  >
-                    {loan.remaining > 0
-                      ? lending
-                        ? 'Chưa thu hết'
-                        : 'Còn nợ'
-                      : lending
-                        ? 'Đã thu hết'
-                        : 'Đã trả hết'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={s.muted}>
-                {new Date(loan.occurred_at).toLocaleDateString('vi-VN')} ·{' '}
-                {data.accounts.find((a) => a.id === loan.account_id)?.name}
-              </Text>
-              <Text style={s.muted}>
-                {loan.due_at
-                  ? `Đến hạn: ${new Date(loan.due_at).toLocaleDateString('vi-VN')}`
-                  : 'Không kỳ hạn'}
-              </Text>
-              {loan.monthly && (
-                <View style={s.between}>
-                  <Text style={s.muted}>Trung bình/tháng</Text>
-                  <Amount value={loan.monthly.amount} />
-                </View>
-              )}
-              <View style={s.between}>
-                <Text style={s.muted}>
-                  {lending
-                    ? loan.remaining
-                      ? 'Cần thu hồi'
-                      : 'Đã thu hết'
-                    : loan.remaining
-                      ? 'Còn nợ'
-                      : 'Đã trả hết'}
-                </Text>
-                <Amount value={loan.remaining} />
-              </View>
-            </AppCard>
-          </Pressable>
+        renderItem={({ item }) => (
+          <LoanCounterpartyGroup
+            group={item}
+            lending={lending}
+            accounts={data.accounts}
+          />
         )}
         ListEmptyComponent={
           <EmptyState
-            title={
-              lending
-                ? 'Chưa có khoản cho vay phù hợp'
-                : 'Chưa có khoản vay phù hợp'
-            }
+            title={lending ? 'Chưa có khoản cho vay phù hợp' : 'Chưa có khoản vay phù hợp'}
             description={
               lending
-                ? 'Thêm khoản cho vay và chọn tài khoản xuất tiền để theo dõi thu hồi.'
-                : 'Thêm khoản vay và chọn tài khoản nhận tiền để bắt đầu theo dõi.'
+                ? 'Thêm khoản cho vay để theo dõi người vay và số tiền cần thu hồi.'
+                : 'Thêm khoản vay để theo dõi chủ nợ và số tiền còn nợ.'
             }
             icon="people-outline"
           />
@@ -173,11 +130,7 @@ export default function Loans() {
       <FloatingAddButton
         visible={addButtonVisible}
         label={lending ? 'Thêm cho vay' : 'Thêm vay'}
-        hint={
-          lending
-            ? 'Mở màn hình thêm khoản cho vay mới'
-            : 'Mở màn hình thêm khoản vay mới'
-        }
+        hint={lending ? 'Thêm khoản cho vay mới' : 'Thêm khoản vay mới'}
         onPress={() =>
           router.push({ pathname: '/loans/new', params: { direction } })
         }

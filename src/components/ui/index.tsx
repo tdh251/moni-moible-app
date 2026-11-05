@@ -149,12 +149,14 @@ export const s = StyleSheet.create({
   divider: { height: 1, backgroundColor: colors.border },
 });
 export function AppHeader({
+  rightAction,
   title,
   subtitle,
   back = false,
   onClose,
   closeDisabled = false,
 }: {
+  rightAction?: React.ReactNode;
   title: string;
   subtitle?: string;
   back?: boolean;
@@ -204,12 +206,15 @@ export function AppHeader({
             <Icon name="close-outline" size={26} />
           </Pressable>
         )}
+        {rightAction}
       </View>
       {subtitle && <Text style={s.muted}>{subtitle}</Text>}
     </View>
   );
 }
 export function ScreenContainer({
+  floatingAction,
+  rightAction,
   title,
   subtitle,
   back,
@@ -218,6 +223,8 @@ export function ScreenContainer({
   onClose,
   closeDisabled = false,
 }: {
+  floatingAction?: React.ReactNode;
+  rightAction?: React.ReactNode;
   title: string;
   subtitle?: string;
   back?: boolean;
@@ -236,9 +243,13 @@ export function ScreenContainer({
           <ScrollView
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={s.content}
+            contentContainerStyle={[
+              s.content,
+              floatingAction ? { paddingBottom: 96 } : undefined,
+            ]}
           >
             <AppHeader
+              rightAction={rightAction}
               title={title}
               subtitle={subtitle}
               back={back}
@@ -250,6 +261,7 @@ export function ScreenContainer({
         ) : (
           <View style={[s.content, { flex: 1, paddingBottom: 0 }]}>
             <AppHeader
+              rightAction={rightAction}
               title={title}
               subtitle={subtitle}
               back={back}
@@ -259,6 +271,7 @@ export function ScreenContainer({
             {children}
           </View>
         )}
+        {floatingAction}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

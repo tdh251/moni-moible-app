@@ -1,19 +1,34 @@
-import { Text } from 'react-native';
+import { useState } from 'react';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Dropdown } from '../../components/ui/Dropdown';
-import { s } from '../../components/ui';
+import { SecondaryButton } from '../../components/ui';
+
+export function reminderTimeLabel(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
 
 export function LoanReminderFields({
   value,
   onChange,
   lending,
+  timeMinutes,
+  onTimeChange,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   lending: boolean;
+  timeMinutes: number;
+  onTimeChange: (minutes: number) => void;
+  disabled?: boolean;
 }) {
+  const [showTime, setShowTime] = useState(false);
+  const time = new Date();
+  time.setHours(Math.floor(timeMinutes / 60), timeMinutes % 60, 0, 0);
   return (
     <>
       <Dropdown
+        disabled={disabled}
         label={lending ? 'Ngày thu tiền hằng tháng' : 'Ngày trả nợ hằng tháng'}
         placeholder="Chọn ngày trong tháng"
         value={value}
@@ -26,14 +41,26 @@ export function LoanReminderFields({
           })),
         ]}
       />
-      <Text style={s.muted}>
-        Nhắc lúc 09:00 theo giờ trên máy. Tháng thiếu ngày đã chọn sẽ nhắc vào
-        ngày cuối tháng. Dừng khi tất toán hoặc hết kỳ hạn.
-      </Text>
-      <Text style={s.muted}>
-        Máy lưu tối đa 60 thông báo sắp tới. Mở Moni định kỳ để bổ sung lịch
-        nhắc cho các tháng tiếp theo.
-      </Text>
+      {!!value && (
+        <SecondaryButton
+          label={`Giờ nhắc: ${reminderTimeLabel(timeMinutes)}`}
+          icon="time-outline"
+          disabled={disabled}
+          onPress={() => setShowTime(true)}
+        />
+      )}
+      {showTime && !!value && (
+        <DateTimePicker
+          value={time}
+          mode="time"
+          is24Hour
+          onValueChange={(_, selected) => {
+            setShowTime(false);
+            onTimeChange(selected.getHours() * 60 + selected.getMinutes());
+          }}
+          onDismiss={() => setShowTime(false)}
+        />
+      )}
     </>
   );
 }

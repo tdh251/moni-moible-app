@@ -32,6 +32,7 @@ type DropdownProps = {
   label: string;
   placeholder: string;
   options: Option[];
+  disabled?: boolean;
 } & (
   | { multiple?: false; value: string; onChange: (value: string) => void }
   | { multiple: true; value: string[]; onChange: (value: string[]) => void }
@@ -49,7 +50,7 @@ export function Dropdown(props: DropdownProps) {
         .map((option) => option.label)
         .join(', ') + (selected.length > 2 ? ' +' + (selected.length - 2) : '')
     : placeholder;
-  const disabled = !options.length;
+  const disabled = props.disabled || !options.length;
   return (
     <>
       <Pressable
@@ -132,6 +133,7 @@ export function Dropdown(props: DropdownProps) {
                         borderColor: colors.dangerBorder,
                       },
                     ]}
+                    disabled={disabled}
                     onPress={() => {
                       if (props.multiple) props.onChange([]);
                     }}
@@ -157,7 +159,8 @@ export function Dropdown(props: DropdownProps) {
                     <Pressable
                       key={option.value}
                       accessibilityRole={props.multiple ? 'checkbox' : 'radio'}
-                      accessibilityState={{ checked }}
+                      accessibilityState={{ checked, disabled }}
+                      disabled={disabled}
                       accessibilityLabel={option.label}
                       onPress={() => {
                         if (props.multiple)

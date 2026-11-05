@@ -177,6 +177,13 @@ export function validateLoans(ledger: Ledger): void {
           !!loan.due_at),
       'Ngày trả / thu tiền hằng tháng phải từ 1 đến 31 và chỉ dùng cho khoản có kỳ hạn.',
     );
+    ensure(
+      loan.payment_time_minutes === undefined ||
+        (Number.isInteger(loan.payment_time_minutes) &&
+          loan.payment_time_minutes >= 0 &&
+          loan.payment_time_minutes <= 1439),
+      'Giờ nhắc không hợp lệ. Chọn giờ từ 00:00 đến 23:59.',
+    );
     parseLoanCosts(loan);
     loans.set(loan.id, loan);
   }
