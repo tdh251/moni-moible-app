@@ -41,6 +41,7 @@ export default function Statistics() {
     : visibleRows.reduce((sum, r) => safeAdd(sum, r.amount), 0);
   return (
     <ScreenContainer
+      tabScreen
       title="Thống kê"
       subtitle="Hiểu dòng tiền, an tâm hơn mỗi ngày."
     >

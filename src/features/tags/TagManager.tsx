@@ -45,9 +45,7 @@ export function TagManager({
   );
   const setDraft = (value: Tag | null) => {
     setDraftState(value);
-    onEditingChange?.(
-      !!value && (data.tags ?? []).some((row) => row.id === value.id),
-    );
+    onEditingChange?.(!!value);
   };
   const edit = (tag: Tag) => {
     resetScroll();
@@ -172,20 +170,14 @@ export function TagManager({
             </View>
           ))}
         </View>
-        {!createOnly && (
-          <PrimaryButton
-            label="Lưu"
-            disabled={busy}
-            onPress={() => void save()}
-          />
-        )}
-        {createOnly && (
-          <FormActions
-            busy={busy}
-            onCancel={() => onClose?.()}
-            onSave={() => void save()}
-          />
-        )}
+        <FormActions
+          busy={busy}
+          onCancel={() => {
+            if (createOnly) onClose?.();
+            else setDraft(null);
+          }}
+          onSave={() => void save()}
+        />
       </ScrollView>
     );
   const shown = (data.tags ?? []).filter(

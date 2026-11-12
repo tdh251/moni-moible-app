@@ -59,9 +59,7 @@ export function CategoryManager({
   );
   const setDraft = (value: Category | null) => {
     setDraftState(value);
-    onEditingChange?.(
-      !!value && data.categories.some((row) => row.id === value.id),
-    );
+    onEditingChange?.(!!value);
   };
   const list = data.categories.filter((c) => c.type === type);
   const visible = onSelect ? list.filter((c) => !c.is_archived) : list;
@@ -156,20 +154,14 @@ export function CategoryManager({
           onIconChange={(icon) => setDraft({ ...draft, icon })}
           onColorChange={(color) => setDraft({ ...draft, color })}
         />
-        {!createOnly && (
-          <PrimaryButton
-            label="Lưu"
-            disabled={busy}
-            onPress={() => void save()}
-          />
-        )}
-        {createOnly && (
-          <FormActions
-            busy={busy}
-            onCancel={() => onClose?.()}
-            onSave={() => void save()}
-          />
-        )}
+        <FormActions
+          busy={busy}
+          onCancel={() => {
+            if (createOnly) onClose?.();
+            else setDraft(null);
+          }}
+          onSave={() => void save()}
+        />
       </ScrollView>
     );
   return (

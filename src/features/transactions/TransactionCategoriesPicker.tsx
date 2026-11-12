@@ -62,6 +62,7 @@ export function TransactionCategoriesPicker({
         }}
       />
       <Dropdown
+        searchable
         label={label}
         placeholder="Chọn danh mục"
         options={options}

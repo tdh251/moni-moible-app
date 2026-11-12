@@ -32,6 +32,11 @@ import {
 } from '../services/categories/tags.ts';
 import { defaultCategories } from './defaults.ts';
 import { resolveTransactionTitle } from '../services/accounting/title.ts';
+import type { SavedTransactionDraft } from '../types/transaction-draft.ts';
+import {
+  duplicateTransactionDraft,
+  validateTransactionDraft,
+} from '../services/transaction-drafts.ts';
 import {
   migration1,
   migration2,
@@ -52,6 +57,7 @@ import {
   migration17,
   migration18,
   migration19,
+  migration20,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -89,6 +95,7 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 17) await db.execAsync(migration17);
   if (row.user_version < 18) await db.execAsync(migration18);
   if (row.user_version < 19) await db.execAsync(migration19);
+  if (row.user_version < 20) await db.execAsync(migration20);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
@@ -116,7 +123,22 @@ export async function readSnapshot(db: Connection): Promise<Snapshot> {
   const [setting] = await db.getAllAsync<{ value: string }>(
     "SELECT value FROM settings WHERE key='onboarded'",
   );
+  const draftRows = await db.getAllAsync<{
+    id: string;
+    values_json: string;
+    created_at: string;
+    updated_at: string;
+  }>('SELECT * FROM transaction_drafts ORDER BY updated_at DESC,id DESC');
+  const transactionDrafts = draftRows.map((row) =>
+    validateTransactionDraft({
+      id: row.id,
+      values: JSON.parse(row.values_json),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }),
+  );
   return {
+    transactionDrafts,
     accounts,
     loans,
     loanPayments,
@@ -218,7 +240,16 @@ async function insertLoanPayment(db: Connection, p: LoanPayment) {
 }
 async function clear(db: Connection) {
   await db.execAsync(
-    'DELETE FROM loan_payments; DELETE FROM loans; DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
+    'DELETE FROM transaction_drafts; DELETE FROM loan_payments; DELETE FROM loans; DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
+  );
+}
+async function insertDraft(db: Connection, draft: SavedTransactionDraft) {
+  await db.runAsync(
+    'INSERT INTO transaction_drafts (id,values_json,created_at,updated_at) VALUES (?,?,?,?)',
+    draft.id,
+    JSON.stringify(draft.values),
+    draft.created_at,
+    draft.updated_at,
   );
 }
 export class FinanceRepository {
@@ -446,10 +477,65 @@ export class FinanceRepository {
       );
     });
   }
-  saveTransaction(draft: TransactionDraft, editing: boolean) {
+  duplicateTransaction(sourceId: string, draftId: string) {
     return this.write(async (db) => {
       const data = await readSnapshot(db);
       ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      ensure(
+        !data.transactions.some((row) => row.id === draftId) &&
+          !data.transactionDrafts?.some((row) => row.id === draftId),
+        'ID bản nháp đã tồn tại.',
+      );
+      const draft = duplicateTransactionDraft(
+        data,
+        sourceId,
+        draftId,
+        new Date().toISOString(),
+      );
+      await insertDraft(db, draft);
+    });
+  }
+  saveTransactionDraft(value: SavedTransactionDraft) {
+    const draft = validateTransactionDraft(value);
+    return this.write(async (db) => {
+      const [old] = await db.getAllAsync<{ id: string }>(
+        'SELECT id FROM transaction_drafts WHERE id=?',
+        draft.id,
+      );
+      ensure(old, 'Bản nháp không còn tồn tại.');
+      await db.runAsync(
+        'UPDATE transaction_drafts SET values_json=?,updated_at=? WHERE id=?',
+        JSON.stringify(draft.values),
+        new Date().toISOString(),
+        draft.id,
+      );
+    });
+  }
+  deleteTransactionDraft(id: string) {
+    return this.write(async (db) => {
+      await db.runAsync('DELETE FROM transaction_drafts WHERE id=?', id);
+    });
+  }
+  saveTransaction(
+    draft: TransactionDraft,
+    editing: boolean,
+    fromDraftId?: string,
+  ) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      if (fromDraftId !== undefined)
+        ensure(
+          !editing &&
+            draft.id === fromDraftId &&
+            data.transactionDrafts?.some((row) => row.id === fromDraftId),
+          'Bản nháp đã được ghi hoặc không còn tồn tại.',
+        );
+      else
+        ensure(
+          !data.transactionDrafts?.some((row) => row.id === draft.id),
+          'Hãy ghi giao dịch từ bản nháp hiện có.',
+        );
       const old = data.transactions.find((t) => t.id === draft.id);
       ensure(editing === !!old, 'Giao dịch đã thay đổi. Hãy mở lại màn hình.');
       const saved = {
@@ -464,6 +550,11 @@ export class FinanceRepository {
       await insertTransaction(db, { ...saved, category_ids_json: '[]' });
       for (const i of saved.items)
         await insertItem(db, { ...i, category_ids_json: '[]' });
+      if (fromDraftId !== undefined)
+        await db.runAsync(
+          'DELETE FROM transaction_drafts WHERE id=?',
+          fromDraftId,
+        );
     });
   }
   deleteTransaction(id: string) {
@@ -583,7 +674,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 19,
+      version: 20,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));
@@ -608,6 +699,8 @@ export class FinanceRepository {
       for (const loan of backup.data.loans ?? []) await insertLoan(db, loan);
       for (const payment of backup.data.loanPayments ?? [])
         await insertLoanPayment(db, payment);
+      for (const draft of backup.data.transactionDrafts ?? [])
+        await insertDraft(db, draft);
       await db.runAsync(
         "INSERT INTO settings VALUES ('onboarded',?)",
         String(backup.data.onboarded),

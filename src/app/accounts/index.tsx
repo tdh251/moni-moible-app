@@ -20,12 +20,21 @@ export default function Accounts() {
       subtitle="Tiền của bạn, trong một góc nhìn."
       back
       scroll={false}
+      floatingAction={
+        <FloatingAddButton
+          visible={addButtonVisible}
+          label="Thêm tài khoản ngân hàng"
+          hint="Mở màn hình thêm tài khoản ngân hàng"
+          disabled={busy}
+          onPress={() => router.push('/accounts/new')}
+        />
+      }
     >
       <ScrollView
         onScroll={handleScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ gap: 18, paddingBottom: 96 }}
+        contentContainerStyle={[s.listContent, { gap: 18 }]}
       >
         <AppCard
           style={{
@@ -69,13 +78,6 @@ export default function Accounts() {
           </Pressable>
         ))}
       </ScrollView>
-      <FloatingAddButton
-        visible={addButtonVisible}
-        label="Thêm tài khoản ngân hàng"
-        hint="Mở màn hình thêm tài khoản ngân hàng"
-        disabled={busy}
-        onPress={() => router.push('/accounts/new')}
-      />
     </ScreenContainer>
   );
 }

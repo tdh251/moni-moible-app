@@ -101,6 +101,7 @@ export interface Ledger {
   items: TransactionItem[];
 }
 export interface Snapshot extends Ledger {
+  transactionDrafts?: import('./transaction-draft').SavedTransactionDraft[];
   onboarded: boolean;
 }
 export interface TransactionDraft extends Transaction {

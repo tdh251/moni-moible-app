@@ -175,6 +175,7 @@ export function TransactionFiltersModal({
                   <Text style={s.label}>Danh mục</Text>
                   <Dropdown
                     multiple
+                    searchable
                     label="Danh mục"
                     placeholder="Tất cả danh mục"
                     options={categoryTree(data.categories).map(

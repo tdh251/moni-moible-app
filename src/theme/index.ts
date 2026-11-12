@@ -3,6 +3,7 @@ export const colors = {
   card: '#FFFFFF',
   text: '#19382C',
   primary: '#287D68',
+  onPrimary: '#FFFFFF',
   light: '#DCECE3',
   balance: '#193D30',
   muted: '#829187',
@@ -15,3 +16,12 @@ export const colors = {
   dangerBorder: '#EED4D0',
 };
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
+export const layout = {
+  screenPadding: 20,
+  sectionGap: 18,
+  contentWidth: 720,
+  floatingButtonSize: 56,
+  floatingButtonBottom: 16,
+  floatingContentPadding: 96,
+  touchTarget: 48,
+};

@@ -10,8 +10,6 @@ import {
   AppCard,
   Choices,
   Field,
-  Icon,
-  PrimaryButton,
   SecondaryButton,
   s,
 } from '../../components/ui';
@@ -27,6 +25,8 @@ import { colors } from '../../theme';
 import type { Loan } from '../../types/finance';
 import { LoanReminderFields } from './LoanReminderFields';
 import { requestLoanReminderPermission } from '../../services/loan-reminders/notifications';
+import { FormActions } from '../../components/ui/FormActions';
+import { BalanceExclusionCheckbox } from '../transactions/BalanceExclusionCheckbox';
 
 export function LoanForm({
   loan,
@@ -36,7 +36,6 @@ export function LoanForm({
   direction?: 'borrow' | 'lend';
 }) {
   const lending = (loan?.direction ?? direction) === 'lend';
-  const excludeLabel = 'Không tính vào số dư';
   const { data, mutate, busy } = useFinance();
   const accounts = data.accounts.filter((a) => !a.is_archived);
   const [lender, setLender] = useState('');
@@ -229,19 +228,30 @@ export function LoanForm({
             )}
           </View>
         )}
-        <AmountInput
-          label={
-            lending
-              ? loan
-                ? 'Số tiền thu hồi (VND)'
-                : 'Số tiền cho vay (VND)'
-              : loan
-                ? 'Số tiền trả (VND)'
-                : 'Số tiền vay (VND)'
-          }
-          value={amount}
-          onChangeText={setAmount}
-        />
+        <View style={{ gap: 0 }}>
+          <AmountInput
+            label={
+              lending
+                ? loan
+                  ? 'Số tiền thu hồi (VND)'
+                  : 'Số tiền cho vay (VND)'
+                : loan
+                  ? 'Số tiền trả (VND)'
+                  : 'Số tiền vay (VND)'
+            }
+            value={amount}
+            onChangeText={setAmount}
+            showHint={false}
+          />
+          {!loan && (
+            <BalanceExclusionCheckbox
+              value={excludeFromBalance}
+              onChange={setExcludeFromBalance}
+              disabled={busy || saving}
+              embedded
+            />
+          )}
+        </View>
         {fullRepayment && (
           <>
             <AmountInput
@@ -283,26 +293,6 @@ export function LoanForm({
           }
           variant="dropdown"
         />
-        {!loan && (
-          <Pressable
-            accessibilityRole="checkbox"
-            accessibilityLabel={excludeLabel}
-            accessibilityState={{ checked: excludeFromBalance, disabled: busy }}
-            disabled={busy}
-            onPress={() => setExcludeFromBalance((value) => !value)}
-            style={({ pressed }) => [
-              s.row,
-              { minHeight: 52, opacity: busy ? 0.5 : pressed ? 0.7 : 1 },
-            ]}
-          >
-            <Icon
-              name={excludeFromBalance ? 'checkbox-outline' : 'square-outline'}
-              size={26}
-              color={excludeFromBalance ? colors.primary : colors.muted}
-            />
-            <Text style={[s.text, { flex: 1 }]}>{excludeLabel}</Text>
-          </Pressable>
-        )}
         <SecondaryButton
           label={`${lending ? (loan ? 'Ngày thu hồi' : 'Ngày cho vay') : loan ? 'Ngày trả nợ' : 'Ngày nhận tiền'}: ${date.toLocaleDateString('vi-VN')}`}
           icon="calendar-outline"
@@ -472,28 +462,15 @@ export function LoanForm({
           onDismiss={() => setPicker(null)}
         />
       )}
-      <PrimaryButton
-        label={
-          lending
-            ? loan
-              ? fullRepayment
-                ? 'Lưu thu hồi toàn bộ'
-                : 'Lưu thu hồi'
-              : 'Lưu khoản cho vay'
-            : loan
-              ? fullRepayment
-                ? 'Lưu trả nợ toàn bộ'
-                : 'Lưu trả nợ'
-              : 'Lưu khoản vay'
-        }
-        disabled={
-          busy ||
-          saving ||
+      <FormActions
+        busy={busy || saving}
+        saveDisabled={
           !account ||
           (loan ? remaining <= 0 : !lender.trim()) ||
           !amount.trim()
         }
-        onPress={() => void save()}
+        onCancel={() => router.back()}
+        onSave={() => void save()}
       />
     </>
   );

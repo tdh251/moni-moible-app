@@ -6,6 +6,7 @@ import {
   AppCard,
   EmptyState,
   Icon,
+  IconButton,
   ScreenContainer,
   TransactionRow,
   s,
@@ -43,6 +44,7 @@ export default function Dashboard() {
   );
   return (
     <ScreenContainer
+      tabScreen
       title={APP_NAME}
       subtitle="Chào bạn, hôm nay mình chi tiêu thế nào?"
     >
@@ -94,11 +96,10 @@ export default function Dashboard() {
         <Text style={s.heading}>Tài khoản của bạn</Text>
         <Pressable
           accessibilityRole="button"
+          style={s.textAction}
           onPress={() => router.push('/accounts')}
         >
-          <Text style={{ color: colors.primary, fontWeight: '600' }}>
-            Quản lý →
-          </Text>
+          <Text style={s.textActionLabel}>Quản lý →</Text>
         </Pressable>
       </View>
       {data.accounts
@@ -168,23 +169,17 @@ export default function Dashboard() {
         )}
       </View>
       <View style={s.between}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Tháng trước"
-          hitSlop={10}
+        <IconButton
+          label="Tháng trước"
+          icon="chevron-back-outline"
           onPress={() => setDate(shiftPeriod(date, 'month', -1))}
-        >
-          <Icon name="chevron-back-outline" />
-        </Pressable>
+        />
         <Text style={s.heading}>{periodLabel(date, 'month')}</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Tháng sau"
-          hitSlop={10}
+        <IconButton
+          label="Tháng sau"
+          icon="chevron-forward-outline"
           onPress={() => setDate(shiftPeriod(date, 'month', 1))}
-        >
-          <Icon name="chevron-forward-outline" />
-        </Pressable>
+        />
       </View>
       <View style={{ flexDirection: 'row', gap: 12 }}>
         <AppCard style={{ flex: 1, padding: 15 }}>
@@ -200,9 +195,10 @@ export default function Dashboard() {
         <Text style={s.heading}>Giao dịch gần đây</Text>
         <Pressable
           accessibilityRole="button"
+          style={s.textAction}
           onPress={() => router.push('/(tabs)/transactions')}
         >
-          <Text style={{ color: colors.primary }}>Xem tất cả →</Text>
+          <Text style={s.textActionLabel}>Xem tất cả →</Text>
         </Pressable>
       </View>
       <AppCard>

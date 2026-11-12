@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { colors } from '../../theme';
+import { colors, layout } from '../../theme';
 import { Dropdown } from './Dropdown';
 import { usePreferences } from '../../stores/preferences';
 import { formatVnd, typeNames } from '../../utils/format';
@@ -57,11 +57,11 @@ export function Icon({
 export const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: {
-    padding: 20,
-    gap: 18,
+    padding: layout.screenPadding,
+    gap: layout.sectionGap,
     paddingBottom: 40,
     width: '100%',
-    maxWidth: 720,
+    maxWidth: layout.contentWidth,
     alignSelf: 'center',
   },
   title: {
@@ -70,7 +70,12 @@ export const s = StyleSheet.create({
     color: colors.text,
     letterSpacing: -0.8,
   },
-  heading: { fontSize: 18, fontWeight: '700', color: colors.text },
+  heading: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: colors.text,
+  },
   text: { fontSize: 15, color: colors.text, lineHeight: 23 },
   muted: { fontSize: 13, color: colors.muted, lineHeight: 20 },
   card: {
@@ -101,7 +106,7 @@ export const s = StyleSheet.create({
   buttonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: 'white',
+    color: colors.onPrimary,
     textAlign: 'center',
   },
   secondary: { backgroundColor: colors.light },
@@ -136,7 +141,7 @@ export const s = StyleSheet.create({
     color: colors.text,
   },
   pill: {
-    minHeight: 42,
+    minHeight: layout.touchTarget,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 13,
@@ -147,7 +152,46 @@ export const s = StyleSheet.create({
   selected: { backgroundColor: colors.light, borderColor: colors.primary },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   divider: { height: 1, backgroundColor: colors.border },
+  listContent: { paddingBottom: layout.floatingContentPadding },
+  iconButton: {
+    minWidth: layout.touchTarget,
+    minHeight: layout.touchTarget,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textAction: { minHeight: layout.touchTarget, justifyContent: 'center' },
+  textActionLabel: { color: colors.primary, fontSize: 14, fontWeight: '600' },
 });
+export function IconButton({
+  label,
+  icon,
+  onPress,
+  disabled = false,
+  danger = false,
+}: {
+  label: string;
+  icon: IconName;
+  onPress: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        s.iconButton,
+        { opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
+      ]}
+    >
+      <Icon name={icon} color={danger ? colors.danger : colors.primary} />
+    </Pressable>
+  );
+}
 export function AppHeader({
   rightAction,
   title,
@@ -170,7 +214,12 @@ export function AppHeader({
           accessibilityRole="button"
           accessibilityLabel="Quay lại"
           hitSlop={8}
-          style={{ alignSelf: 'flex-start', paddingVertical: 8 }}
+          style={({ pressed }) => ({
+            alignSelf: 'flex-start',
+            minHeight: layout.touchTarget,
+            justifyContent: 'center',
+            opacity: pressed ? 0.7 : 1,
+          })}
           onPress={() =>
             router.canGoBack() ? router.back() : router.replace('/')
           }
@@ -186,25 +235,15 @@ export function AppHeader({
           {title}
         </Text>
         {onClose && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Đóng popup"
-            accessibilityState={{ disabled: closeDisabled }}
+          <IconButton
+            label="Đóng popup"
+            icon="close-outline"
             disabled={closeDisabled}
             onPress={() => {
               Keyboard.dismiss();
               onClose();
             }}
-            style={({ pressed }) => ({
-              minWidth: 48,
-              minHeight: 48,
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: closeDisabled ? 0.45 : pressed ? 0.7 : 1,
-            })}
-          >
-            <Icon name="close-outline" size={26} />
-          </Pressable>
+          />
         )}
         {rightAction}
       </View>
@@ -222,6 +261,7 @@ export function ScreenContainer({
   scroll = true,
   onClose,
   closeDisabled = false,
+  tabScreen = false,
 }: {
   floatingAction?: React.ReactNode;
   rightAction?: React.ReactNode;
@@ -232,9 +272,17 @@ export function ScreenContainer({
   scroll?: boolean;
   onClose?: () => void;
   closeDisabled?: boolean;
+  tabScreen?: boolean;
 }) {
   return (
-    <SafeAreaView style={s.screen} edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView
+      style={s.screen}
+      edges={
+        tabScreen
+          ? ['top', 'left', 'right']
+          : ['top', 'left', 'right', 'bottom']
+      }
+    >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -243,9 +291,10 @@ export function ScreenContainer({
           <ScrollView
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={[
               s.content,
-              floatingAction ? { paddingBottom: 96 } : undefined,
+              floatingAction ? s.listContent : undefined,
             ]}
           >
             <AppHeader
@@ -271,7 +320,21 @@ export function ScreenContainer({
             {children}
           </View>
         )}
-        {floatingAction}
+        {floatingAction && (
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              width: '100%',
+              maxWidth: layout.contentWidth,
+              alignSelf: 'center',
+            }}
+          >
+            {floatingAction}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -302,6 +365,7 @@ export function PrimaryButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -310,7 +374,9 @@ export function PrimaryButton({
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
     >
-      {icon && <Icon name={icon} color={danger ? colors.danger : 'white'} />}
+      {icon && (
+        <Icon name={icon} color={danger ? colors.danger : colors.onPrimary} />
+      )}
       <Text style={[s.buttonText, danger && { color: colors.danger }]}>
         {label}
       </Text>
@@ -327,6 +393,7 @@ export function SecondaryButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -526,6 +593,7 @@ export function CategoryPicker({
       {variant === 'dropdown' ? (
         <Dropdown
           label="Danh mục"
+          searchable
           placeholder="Chọn danh mục"
           options={options}
           value={value}

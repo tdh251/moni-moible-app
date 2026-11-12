@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import {
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +19,15 @@ interface Option {
   label: string;
   icon?: string;
 }
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('vi-VN')
+    .replace(/đ/g, 'd')
+    .trim();
+}
+
 function OptionIcon({ name }: { name?: string }) {
   if (!name || !(name in Ionicons.glyphMap)) return null;
   return (
@@ -33,13 +44,24 @@ type DropdownProps = {
   placeholder: string;
   options: Option[];
   disabled?: boolean;
+  searchable?: boolean;
 } & (
   | { multiple?: false; value: string; onChange: (value: string) => void }
   | { multiple: true; value: string[]; onChange: (value: string[]) => void }
 );
 export function Dropdown(props: DropdownProps) {
-  const { label, placeholder, options, value } = props;
+  const { label, placeholder, options, value, searchable = false } = props;
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const query = searchable ? normalizeSearch(search) : '';
+  const filteredOptions = query
+    ? options.filter((option) => normalizeSearch(option.label).includes(query))
+    : options;
+  const searchLabel = 'Tìm ' + label.toLocaleLowerCase('vi-VN');
+  const close = () => {
+    Keyboard.dismiss();
+    setOpen(false);
+  };
   const selectedIds = Array.isArray(value) ? value : [value];
   const selected = options.filter((option) =>
     selectedIds.includes(option.value),
@@ -60,6 +82,7 @@ export function Dropdown(props: DropdownProps) {
         disabled={disabled}
         onPress={() => {
           Keyboard.dismiss();
+          setSearch('');
           setOpen(true);
         }}
         style={({ pressed }) => [
@@ -83,14 +106,18 @@ export function Dropdown(props: DropdownProps) {
         visible={open}
         transparent
         animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onRequestClose={close}
       >
-        <View style={styles.overlay}>
+        <KeyboardAvoidingView
+          style={styles.overlay}
+          behavior="padding"
+          enabled={searchable}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Đóng danh sách"
             style={StyleSheet.absoluteFill}
-            onPress={() => setOpen(false)}
+            onPress={close}
           />
           <SafeAreaView style={styles.safeArea} pointerEvents="box-none">
             <View style={styles.menu} accessibilityViewIsModal>
@@ -107,7 +134,7 @@ export function Dropdown(props: DropdownProps) {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Đóng danh sách"
-                  onPress={() => setOpen(false)}
+                  onPress={close}
                   style={styles.close}
                 >
                   <Ionicons
@@ -117,6 +144,41 @@ export function Dropdown(props: DropdownProps) {
                   />
                 </Pressable>
               </View>
+              {searchable && (
+                <View style={styles.search}>
+                  <Ionicons
+                    name="search-outline"
+                    size={20}
+                    color={colors.muted}
+                  />
+                  <TextInput
+                    accessibilityLabel={searchLabel}
+                    placeholder={searchLabel + '...'}
+                    placeholderTextColor={colors.muted}
+                    value={search}
+                    onChangeText={setSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    onSubmitEditing={Keyboard.dismiss}
+                    style={[styles.text, styles.searchInput]}
+                  />
+                  {search.length > 0 && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Xóa từ khóa tìm kiếm"
+                      onPress={() => setSearch('')}
+                      style={styles.close}
+                    >
+                      <Ionicons
+                        name="close-circle-outline"
+                        size={22}
+                        color={colors.muted}
+                      />
+                    </Pressable>
+                  )}
+                </View>
+              )}
               {props.multiple && selected.length > 0 && (
                 <View style={{ alignItems: 'flex-end' }}>
                   <Pressable
@@ -153,7 +215,12 @@ export function Dropdown(props: DropdownProps) {
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ gap: 6 }}
               >
-                {options.map((option) => {
+                {filteredOptions.length === 0 && (
+                  <Text style={[styles.text, styles.empty]}>
+                    Không tìm thấy kết quả phù hợp.
+                  </Text>
+                )}
+                {filteredOptions.map((option) => {
                   const checked = selectedIds.includes(option.value);
                   return (
                     <Pressable
@@ -171,7 +238,7 @@ export function Dropdown(props: DropdownProps) {
                           );
                         else {
                           props.onChange(option.value);
-                          setOpen(false);
+                          close();
                         }
                       }}
                       style={({ pressed }) => [
@@ -209,7 +276,7 @@ export function Dropdown(props: DropdownProps) {
               {props.multiple && (
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => setOpen(false)}
+                  onPress={close}
                   style={[
                     styles.option,
                     {
@@ -227,7 +294,7 @@ export function Dropdown(props: DropdownProps) {
               )}
             </View>
           </SafeAreaView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -264,6 +331,28 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  search: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    backgroundColor: colors.background,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 12,
+  },
+  empty: {
+    color: colors.muted,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
   close: {
     minWidth: 48,
     minHeight: 48,

@@ -4,6 +4,7 @@ import { transactionTagIds } from '../tags.ts';
 import { transactionCategoryTags } from '../categories/tags.ts';
 import type { Ledger, Snapshot } from '../../types/finance.ts';
 import { parseAdjustments } from '../accounting/receipt.ts';
+import { validateTransactionDraft } from '../transaction-drafts.ts';
 import {
   ensure,
   FinanceError,
@@ -32,7 +33,8 @@ export interface Backup {
     | 16
     | 17
     | 18
-    | 19;
+    | 19
+    | 20;
   exported_at: string;
   data: Snapshot;
 }
@@ -94,10 +96,11 @@ export function validateBackup(value: unknown): Backup {
         value.version === 16 ||
         value.version === 17 ||
         value.version === 18 ||
-        value.version === 19) &&
+        value.version === 19 ||
+        value.version === 20) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 19.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 20.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -112,6 +115,18 @@ export function validateBackup(value: unknown): Backup {
   const tags = rows(data.tags ?? []);
   const loans = rows(data.loans ?? []);
   const loanPayments = rows(data.loanPayments ?? []);
+  const transactionDrafts = rows(data.transactionDrafts ?? []).map(
+    validateTransactionDraft,
+  );
+  ensure(
+    backupVersion >= 20 || transactionDrafts.length === 0,
+    'Bản sao lưu có bản nháp phải dùng phiên bản 20.',
+  );
+  const postedIds = new Set(transactions.map((row) => row.id));
+  ensure(
+    transactionDrafts.every((draft) => !postedIds.has(draft.id)),
+    'ID bản nháp không được trùng giao dịch đã ghi.',
+  );
   for (const payment of loanPayments) {
     ensure(
       payment.fee_amount === undefined ||
@@ -199,7 +214,8 @@ export function validateBackup(value: unknown): Backup {
     data.onboarded ||
       (accounts.length === 0 &&
         transactions.length === 0 &&
-        items.length === 0),
+        items.length === 0 &&
+        transactionDrafts.length === 0),
     'Dữ liệu chưa thiết lập không được có giao dịch.',
   );
   for (const c of categories)
@@ -377,10 +393,11 @@ export function validateBackup(value: unknown): Backup {
   validateLedger(normalized);
   return {
     format: 'monomoney',
-    version: 19,
+    version: 20,
     exported_at: value.exported_at,
     data: {
       ...normalized,
+      transactionDrafts,
       onboarded: data.onboarded,
     },
   };

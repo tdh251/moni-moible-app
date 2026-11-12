@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { FinanceProvider } from '../hooks/finance';
 import { APP_NAME } from '../constants/app';
 import { EmptyState, PrimaryButton, ScreenContainer } from '../components/ui';
+import { colors } from '../theme';
 export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
   return (
     <ScreenContainer title={APP_NAME}>
@@ -23,7 +24,7 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: '#F7F9F7' },
+            contentStyle: { backgroundColor: colors.background },
           }}
         />
       </FinanceProvider>

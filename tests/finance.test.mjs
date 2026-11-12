@@ -124,6 +124,257 @@ async function fixture(t, amount = 1000) {
   ]);
   return f;
 }
+test('duplicating income expense and transfer creates persistent drafts without financial effects', async (t) => {
+  const { repo } = await fixture(t);
+  for (const type of ['income', 'expense', 'transfer']) {
+    const original = draft(type, { note: `Ghi chú ${type}` });
+    await repo.saveTransaction(original, false);
+    const before = await repo.snapshot();
+    await repo.duplicateTransaction(original.id, `copy-${type}`);
+    const after = await repo.snapshot();
+    const copy = after.transactionDrafts.find(
+      (row) => row.id === `copy-${type}`,
+    );
+    assert.equal(copy.values.type, type);
+    assert.equal(copy.values.title, original.title);
+    assert.equal(copy.values.amount, String(original.amount));
+    assert.equal(copy.values.note, original.note);
+    assert.equal(copy.values.occurred_at, original.occurred_at);
+    assert.equal(copy.values.source, original.source_account_id ?? '');
+    assert.equal(
+      copy.values.destination,
+      original.destination_account_id ?? '',
+    );
+    assert.deepEqual(after.transactions, before.transactions);
+    assert.deepEqual(after.items, before.items);
+    assert.deepEqual(accountBalances(after), accountBalances(before));
+    assert.deepEqual(statistics(after, filters), statistics(before, filters));
+    assert.equal(transactionsCsv(after), transactionsCsv(before));
+  }
+  const before = await repo.snapshot();
+  await assert.rejects(
+    repo.duplicateTransaction('missing', 'missing-copy'),
+    /không còn/,
+  );
+  await assert.rejects(
+    repo.duplicateTransaction(before.transactions[0].id, 'copy-expense'),
+    /đã tồn tại/,
+  );
+  assert.deepEqual(await repo.snapshot(), before);
+});
+
+test('receipt duplicates copy tags categories adjustments and exclusion with independent item IDs', async (t) => {
+  const { repo } = await fixture(t);
+  const receipt = await receiptWithItemTags(repo);
+  receipt.adjustments_json = JSON.stringify([
+    ...JSON.parse(receipt.adjustments_json),
+    {
+      id: 'fixed-copy-test',
+      name: 'Phí giao hàng',
+      kind: 'fixed',
+      amount_vnd: 50,
+    },
+  ]);
+  receipt.amount = 950;
+  receipt.exclude_from_balance = 1;
+  await repo.saveTransaction(receipt, false);
+  const before = await repo.snapshot();
+  await repo.duplicateTransaction(receipt.id, 'copy-receipt');
+  const copy = (await repo.snapshot()).transactionDrafts[0];
+  assert.equal(copy.values.mode, 'items');
+  assert.equal(copy.values.excludeFromBalance, true);
+  assert.deepEqual(copy.values.tagIds, ['whole']);
+  assert.equal(copy.values.items.length, 2);
+  assert.deepEqual(copy.values.items[0].tagIds, ['food-tag', 'whole']);
+  for (const [index, item] of copy.values.items.entries()) {
+    assert.notEqual(item.id, receipt.items[index].id);
+    assert.equal(item.name, receipt.items[index].name);
+    assert.equal(item.amount, String(receipt.items[index].amount));
+    assert.deepEqual(item.categoryIds, [receipt.items[index].category_id]);
+  }
+  const adjustments = JSON.parse(receipt.adjustments_json);
+  assert.equal(
+    copy.values.adjustments[0].percent,
+    String(adjustments[0].rate_bps / 100),
+  );
+  assert.notEqual(copy.values.adjustments[0].id, adjustments[0].id);
+  assert.equal(copy.values.adjustments[2].mode, 'fixed');
+  assert.equal(copy.values.adjustments[2].amount, '50');
+  assert.notEqual(copy.values.adjustments[2].id, adjustments[2].id);
+  const posted = {
+    ...receipt,
+    id: copy.id,
+    items: receipt.items.map((item, index) => ({
+      ...item,
+      id: copy.values.items[index].id,
+      transaction_id: copy.id,
+    })),
+    adjustments_json: JSON.stringify(
+      adjustments.map((item, index) => ({
+        ...item,
+        id: copy.values.adjustments[index].id,
+      })),
+    ),
+  };
+  await repo.saveTransaction(posted, false, copy.id);
+  const after = await repo.snapshot();
+  assert.equal(after.transactionDrafts.length, 0);
+  assert.equal(after.transactions.length, 2);
+  assert.equal(after.items.length, 4);
+  assert.deepEqual(
+    after.items.filter((item) => item.transaction_id === receipt.id),
+    before.items,
+  );
+  assert.deepEqual(accountBalances(after), accountBalances(before));
+  assert.equal(statistics(after, filters).expense, 1900);
+});
+
+test('draft edits may be incomplete and remain independent after deleting their source', async (t) => {
+  const { repo } = await fixture(t);
+  const original = draft('expense');
+  await repo.saveTransaction(original, false);
+  await repo.duplicateTransaction(original.id, 'incomplete-copy');
+  const copy = (await repo.snapshot()).transactionDrafts[0];
+  copy.values.amount = '';
+  copy.values.source = 'deleted-account';
+  copy.values.allocations = [];
+  copy.values.note = 'Sửa sau';
+  await repo.saveTransactionDraft(copy);
+  const saved = (await repo.snapshot()).transactionDrafts[0];
+  assert.deepEqual(saved.values, copy.values);
+  assert.equal(accountBalances(await repo.snapshot()).cash, 900);
+  await repo.deleteTransaction(original.id);
+  assert.deepEqual(
+    (await repo.snapshot()).transactionDrafts[0].values,
+    saved.values,
+  );
+  await repo.deleteTransactionDraft(copy.id);
+  assert.equal((await repo.snapshot()).transactionDrafts.length, 0);
+  await assert.rejects(repo.saveTransactionDraft(copy), /không còn/);
+});
+
+test('posting a draft validates funds, rolls back completely on failure and only posts once', async (t) => {
+  const { repo, db } = await fixture(t);
+  const original = draft('expense', { amount: 600 });
+  await repo.saveTransaction(original, false);
+  await repo.duplicateTransaction(original.id, 'posting-copy');
+  const before = await repo.snapshot();
+  const posted = { ...original, id: 'posting-copy' };
+  await assert.rejects(
+    repo.saveTransaction(posted, false, posted.id),
+    /Không đủ/,
+  );
+  assert.deepEqual(await repo.snapshot(), before);
+  await assert.rejects(repo.saveTransaction(posted, false), /bản nháp/);
+  db.exec(
+    "CREATE TRIGGER fail_draft_post BEFORE DELETE ON transaction_drafts BEGIN SELECT RAISE(ABORT, 'forced post failure'); END;",
+  );
+  const valid = { ...posted, amount: 200 };
+  await assert.rejects(
+    repo.saveTransaction(valid, false, valid.id),
+    /forced post failure/,
+  );
+  assert.deepEqual(await repo.snapshot(), before);
+  db.exec('DROP TRIGGER fail_draft_post');
+  const results = await Promise.allSettled([
+    repo.saveTransaction(valid, false, valid.id),
+    repo.saveTransaction(valid, false, valid.id),
+  ]);
+  assert.equal(
+    results.filter((result) => result.status === 'fulfilled').length,
+    1,
+  );
+  const after = await repo.snapshot();
+  assert.equal(after.transactions.length, 2);
+  assert.equal(after.transactionDrafts.length, 0);
+  assert.equal(accountBalances(after).cash, 200);
+  assert.deepEqual(
+    after.transactions.find((row) => row.id === original.id),
+    before.transactions[0],
+  );
+});
+
+test('draft backup roundtrip includes incomplete fields and rejects malformed or downgraded drafts atomically', async (t) => {
+  const { repo } = await fixture(t);
+  const original = draft('transfer');
+  await repo.saveTransaction(original, false);
+  await repo.duplicateTransaction(original.id, 'backup-copy');
+  const copy = (await repo.snapshot()).transactionDrafts[0];
+  copy.values.amount = '';
+  await repo.saveTransactionDraft(copy);
+  const backup = await repo.backup();
+  assert.equal(backup.version, 20);
+  assert.deepEqual(parseBackup(JSON.stringify(backup)), backup);
+  for (const change of [
+    (value) => {
+      value.version = 19;
+    },
+    (value) => {
+      value.data.transactionDrafts[0].values.type = 'bad';
+    },
+    (value) => {
+      value.data.transactionDrafts[0].values.tagIds = ['same', 'same'];
+    },
+    (value) => {
+      value.data.transactionDrafts[0].values.items = [{}];
+    },
+    (value) => {
+      value.data.transactionDrafts[0].id = original.id;
+    },
+    (value) => {
+      value.data.transactionDrafts[0].updated_at = 'bad';
+    },
+    (value) => {
+      value.data.transactionDrafts.push(value.data.transactionDrafts[0]);
+    },
+  ]) {
+    const bad = structuredClone(backup);
+    change(bad);
+    await assert.rejects(async () => repo.restore(bad));
+    assert.deepEqual(await repo.snapshot(), backup.data);
+  }
+  await repo.reset();
+  assert.equal((await repo.snapshot()).transactionDrafts.length, 0);
+  await repo.restore(backup);
+  assert.deepEqual(await repo.snapshot(), backup.data);
+  const legacy = structuredClone(backup);
+  legacy.version = 19;
+  delete legacy.data.transactionDrafts;
+  await repo.restore(legacy);
+  assert.equal((await repo.snapshot()).transactionDrafts.length, 0);
+  assert.deepEqual(
+    (await repo.snapshot()).transactions,
+    backup.data.transactions,
+  );
+});
+
+test('draft migration preserves v19 finances and drafts survive SQLite close/reopen', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'moni-drafts-'));
+  const path = join(dir, 'drafts.db');
+  let f = connect(path);
+  try {
+    await f.repo.initialize();
+    await f.repo.onboard([makeAccount('cash', 'Tiền mặt', 'cash', 1000)]);
+    const original = draft('expense');
+    await f.repo.saveTransaction(original, false);
+    const before = await f.repo.snapshot();
+    f.db.exec('DROP TABLE transaction_drafts; PRAGMA user_version=19');
+    await f.repo.initialize();
+    assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.deepEqual(await f.repo.snapshot(), before);
+    await f.repo.duplicateTransaction(original.id, 'persistent-copy');
+    const saved = await f.repo.snapshot();
+    f.db.close();
+    f = connect(path);
+    await f.repo.initialize();
+    assert.deepEqual(await f.repo.snapshot(), saved);
+  } finally {
+    f.db.close();
+    unlinkSync(path);
+    rmdirSync(dir);
+  }
+});
+
 test('category order persists, stays within its type and rejects stale or duplicate lists atomically', async (t) => {
   const { repo } = await fixture(t);
   const before = await repo.snapshot();
@@ -208,7 +459,7 @@ test('deleting categories removes unused ones and archives transaction or receip
 test('fresh migrations are repeatable, FK enabled, cash uniqueness and constraints work', async (t) => {
   const { repo, db } = await fixture(t);
   await repo.initialize();
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.throws(() =>
     db
@@ -1002,7 +1253,7 @@ test('current backup and CSV retain custom fields, and malformed adjustments can
   const d = adjustedDraft();
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1073,7 +1324,7 @@ test('migration v1 to v2 preserves existing accounts, transactions and onboardin
   assert.equal(data.transactions[0].id, 'old-tx');
   assert.equal(data.transactions[0].adjustments_json, '[]');
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
 });
 
 test('fixed VND parser accepts signed integers and rejects unsafe or fractional input', () => {
@@ -1230,7 +1481,7 @@ test('v3 backup preserves mixed adjustments, reads v2, and rejects fixed lines m
   ]);
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1443,7 +1694,7 @@ test('exclusion persists in backups and CSV; invalid flags and old versions cann
   const d = draft('expense', { exclude_from_balance: 1, amount: 5000 });
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.reset();
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), backup.data);
@@ -1512,7 +1763,7 @@ test('schema v2 upgrades safely with a constrained default inclusion flag', asyn
   const data = await f.repo.snapshot();
   assert.equal(data.transactions[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.throws(() =>
     f.db.prepare('UPDATE transactions SET exclude_from_balance=2').run(),
   );
@@ -1532,7 +1783,7 @@ test('schema v3 migrates flat categories without changing stored transactions', 
   assert.equal(data.categories.length, 1);
   assert.equal(data.categories[0].id, 'legacy');
   assert.equal(data.categories[0].parent_id, null);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   await f.repo.initialize();
   assert.deepEqual(await f.repo.snapshot(), data);
 });
@@ -2157,7 +2408,7 @@ test('tag backup and CSV roundtrip preserve definitions and assignments and reje
   );
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   assert.ok(transactionsCsv(before).includes('Khuyến mãi | Shopee'));
@@ -2465,7 +2716,7 @@ test('reminder time migrates from v18, validates atomically and roundtrips throu
   assert.equal(saved.loans[0].payment_time_minutes, 1115);
   assert.deepEqual(accountBalances(saved), accountBalances(before));
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   assert.throws(() => validateBackup({ ...backup, version: 18 }));
   const malformed = structuredClone(backup);
   malformed.data.loans[0].payment_time_minutes = 1440;
@@ -2532,7 +2783,7 @@ test('monthly reminder settings validate atomically, preserve balances and survi
   assert.equal(saved.loans[0].payment_day, 31);
   assert.deepEqual(accountBalances(saved), accountBalances(before));
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   assert.throws(() => validateBackup({ ...backup, version: 17 }));
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), saved);
@@ -2608,7 +2859,7 @@ test('v16 migration preserves borrowed balances and defaults existing loans to b
   );
   await repo.initialize();
   assert.deepEqual(await repo.snapshot(), before);
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20);
   const legacy = await repo.backup();
   legacy.version = 16;
   delete legacy.data.loans[0].direction;
@@ -2629,7 +2880,7 @@ test('lending supports historical records, independent debt totals, collection d
   assert.equal(totalLoanOutstanding(data), 500);
   assert.equal(totalLoanOutstanding(data, 'lend'), 300);
   const backup = validateBackup(await repo.backup());
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   assert.throws(() => validateBackup({ ...backup, version: 16 }));
   const other = await fixture(t);
   await other.repo.restore(backup);
@@ -2799,7 +3050,7 @@ test('loan backups roundtrip, reject malformed or disguised old-version debts wi
   await repo.repayLoan(payment(borrowed.id));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const mutate of [
@@ -2856,7 +3107,7 @@ test('schema v8 migration adds loan tables without changing existing accounts, t
   f.db.prepare("INSERT INTO settings VALUES ('onboarded','true')").run();
   await f.repo.initialize();
   let data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.deepEqual(data.loans, []);
   assert.deepEqual(data.loanPayments, []);
   assert.equal(accountBalances(data).cash, 1000);
@@ -2975,7 +3226,7 @@ test('backup includes term and costs, rejects version downgrades and reads old p
   );
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -3030,7 +3281,7 @@ test('schema v9 migration preserves existing loans and repayments with no term a
     );
   await f.repo.initialize();
   const data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.equal(data.loans[0].due_at, null);
   assert.equal(data.loans[0].costs_json, '[]');
   assert.equal(data.loans[0].note, 'Ghi chú cũ');
@@ -3190,7 +3441,7 @@ test('v10 loan migration keeps original cash movements, includes fees in debt an
   assert.equal(data.loans[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 1000);
   assert.equal(totalLoanOutstanding(data), 170);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.throws(() =>
     f.db.prepare('UPDATE loans SET exclude_from_balance=2').run(),
   );
@@ -3260,7 +3511,7 @@ test('settlement fees persist in backups and invalid or legacy fee data cannot r
   await repo.repayLoan(payment(borrowed.id, { amount: 500, fee_amount: 50 }));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -3304,7 +3555,7 @@ test('schema v11 migration defaults repayment fee to zero without changing debt 
   assert.equal(data.loanPayments[0].fee_amount, 0);
   assert.equal(accountBalances(data).cash, 1400);
   assert.equal(totalLoanOutstanding(data), 400);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 19);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
   assert.throws(() =>
     f.db.prepare('UPDATE loan_payments SET fee_amount=-1').run(),
   );
@@ -3481,7 +3732,7 @@ test('item tags survive backup and CSV, reject legacy versions and reset with th
   await repo.saveTransaction(receipt, false);
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   const csv = transactionsCsv(before);
@@ -3715,7 +3966,7 @@ test('legacy backups flatten category levels and choose the first label, while m
     legacy.data.categories.map((c) => [c.id, c.name]),
   );
   const backup = await repo.backup();
-  assert.equal(backup.version, 19);
+  assert.equal(backup.version, 20);
   assert.deepEqual(parseBackup(JSON.stringify(backup)), backup);
   backup.data.transactions[0].category_ids_json =
     '["default-expense-0","default-expense-1"]';

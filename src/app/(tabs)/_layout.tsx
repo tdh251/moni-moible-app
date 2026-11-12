@@ -2,8 +2,10 @@ import { Redirect, Tabs } from 'expo-router';
 import { Icon } from '../../components/ui';
 import { colors } from '../../theme';
 import { useFinance } from '../../hooks/finance';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function TabsLayout() {
   const { data } = useFinance();
+  const insets = useSafeAreaInsets();
   if (!data.onboarded) return <Redirect href="/onboarding" />;
   return (
     <Tabs
@@ -11,26 +13,42 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
+        tabBarActiveBackgroundColor: colors.light,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
+          height: 64 + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 6),
+          elevation: 0,
         },
-        tabBarLabelStyle: { fontSize: 11 },
+        tabBarItemStyle: {
+          borderRadius: 14,
+          marginHorizontal: 3,
+          paddingVertical: 4,
+        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="dashboard"
         options={{
           title: 'Tổng quan',
-          tabBarIcon: ({ color }) => <Icon name="grid-outline" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Icon name={focused ? 'grid' : 'grid-outline'} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="transactions"
         options={{
           title: 'Giao dịch',
-          tabBarIcon: ({ color }) => (
-            <Icon name="receipt-outline" color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Icon
+              name={focused ? 'receipt' : 'receipt-outline'}
+              color={color}
+            />
           ),
         }}
       />
@@ -38,8 +56,8 @@ export default function TabsLayout() {
         name="loans"
         options={{
           title: 'Khoản vay',
-          tabBarIcon: ({ color }) => (
-            <Icon name="people-outline" color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Icon name={focused ? 'people' : 'people-outline'} color={color} />
           ),
         }}
       />
@@ -47,8 +65,11 @@ export default function TabsLayout() {
         name="statistics"
         options={{
           title: 'Thống kê',
-          tabBarIcon: ({ color }) => (
-            <Icon name="pie-chart-outline" color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Icon
+              name={focused ? 'pie-chart' : 'pie-chart-outline'}
+              color={color}
+            />
           ),
         }}
       />
@@ -56,8 +77,8 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: 'Cá nhân',
-          tabBarIcon: ({ color }) => (
-            <Icon name="person-outline" color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Icon name={focused ? 'person' : 'person-outline'} color={color} />
           ),
         }}
       />

@@ -45,6 +45,7 @@ export function TransactionCategoryPicker({
         }}
       />
       <Dropdown
+        searchable
         label="Danh mục"
         placeholder="Chọn danh mục"
         options={options}

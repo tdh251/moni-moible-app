@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Alert, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
+import Constants from 'expo-constants';
 import {
   AppCard,
   ConfirmationDialog,
@@ -97,6 +98,7 @@ export default function Settings() {
   };
   return (
     <ScreenContainer
+      tabScreen
       title="Cá nhân"
       subtitle="Một sổ tiền riêng, theo cách của bạn."
     >
@@ -174,10 +176,8 @@ export default function Settings() {
       <Text style={s.heading}>Sao lưu & khôi phục</Text>
       <AppCard>
         <Text style={s.muted}>
-          JSON {APP_NAME} phiên bản 8, gồm toàn bộ tài khoản, danh mục, tag và
-          giao dịch, gồm điều chỉnh hóa đơn. Vẫn đọc được bản sao lưu phiên bản
-          1, 2 3, 4, 5, 6 và 7. Việc khôi phục được kiểm tra trước và ghi nguyên
-          tử.
+          Sao lưu toàn bộ tài khoản, danh mục, tag, giao dịch, khoản vay và bản
+          nháp. Hỗ trợ đọc các bản sao lưu cũ của {APP_NAME}.
         </Text>
         <SecondaryButton
           label="Xuất bản sao lưu"
@@ -259,7 +259,9 @@ export default function Settings() {
       <Text style={s.heading}>Thông tin ứng dụng</Text>
       <AppCard>
         <Text style={s.text}>{APP_DISPLAY_NAME}</Text>
-        <Text style={s.muted}>Phiên bản 1.0.0</Text>
+        <Text style={s.muted}>
+          Phiên bản {Constants.expoConfig?.version ?? '—'}
+        </Text>
         <Text style={s.muted}>
           Ghi thu chi, theo dõi tiền mặt và ngân hàng. Tối giản, rõ ràng và hoạt
           động ngoại tuyến.

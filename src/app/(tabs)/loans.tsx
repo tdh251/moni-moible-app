@@ -24,15 +24,23 @@ type LoanEntry = Loan & {
   remaining: number;
   monthly: ReturnType<typeof loanMonthlyPayment>;
 };
-type LoanGroup = { key: string; name: string; loans: LoanEntry[]; remaining: number };
+type LoanGroup = {
+  key: string;
+  name: string;
+  loans: LoanEntry[];
+  remaining: number;
+};
 
 export default function Loans() {
-  const { data, reminderWarning } = useFinance();
+  const { data, reminderWarning, busy } = useFinance();
   const [status, setStatus] = useState('');
   const [direction, setDirection] = useState('borrow');
   const lending = direction === 'lend';
   const matchingLoans = useMemo(
-    () => (data.loans ?? []).filter((loan) => (loan.direction ?? 'borrow') === direction),
+    () =>
+      (data.loans ?? []).filter(
+        (loan) => (loan.direction ?? 'borrow') === direction,
+      ),
     [data.loans, direction],
   );
   const { addButtonVisible, handleScroll } = useScrollAddButton();
@@ -57,26 +65,49 @@ export default function Loans() {
         existing.loans.push(entry);
         existing.remaining += entry.remaining;
       } else {
-        byCounterparty.set(key, { key, name, loans: [entry], remaining: entry.remaining });
+        byCounterparty.set(key, {
+          key,
+          name,
+          loans: [entry],
+          remaining: entry.remaining,
+        });
       }
     }
     return [...byCounterparty.values()]
       .map((group) => ({
         ...group,
-        loans: group.loans.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)),
+        loans: group.loans.sort((a, b) =>
+          b.occurred_at.localeCompare(a.occurred_at),
+        ),
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   }, [matchingLoans, balances, status]);
 
   return (
-    <ScreenContainer title="Khoản vay" scroll={false}>
+    <ScreenContainer
+      title="Khoản vay"
+      subtitle="Theo dõi khoản vay và tiền cần thu hồi."
+      tabScreen
+      scroll={false}
+      floatingAction={
+        <FloatingAddButton
+          visible={addButtonVisible}
+          label={lending ? 'Thêm cho vay' : 'Thêm vay'}
+          hint={lending ? 'Thêm khoản cho vay mới' : 'Thêm khoản vay mới'}
+          disabled={busy}
+          onPress={() =>
+            router.push({ pathname: '/loans/new', params: { direction } })
+          }
+        />
+      }
+    >
       <FlatList
         data={groups}
         keyExtractor={(group) => group.key}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={{ gap: 12, paddingBottom: 96 }}
+        contentContainerStyle={[s.listContent, { gap: 12 }]}
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
             {!!reminderWarning && <Text style={s.text}>{reminderWarning}</Text>}
@@ -117,7 +148,11 @@ export default function Loans() {
         )}
         ListEmptyComponent={
           <EmptyState
-            title={lending ? 'Chưa có khoản cho vay phù hợp' : 'Chưa có khoản vay phù hợp'}
+            title={
+              lending
+                ? 'Chưa có khoản cho vay phù hợp'
+                : 'Chưa có khoản vay phù hợp'
+            }
             description={
               lending
                 ? 'Thêm khoản cho vay để theo dõi người vay và số tiền cần thu hồi.'
@@ -125,14 +160,6 @@ export default function Loans() {
             }
             icon="people-outline"
           />
-        }
-      />
-      <FloatingAddButton
-        visible={addButtonVisible}
-        label={lending ? 'Thêm cho vay' : 'Thêm vay'}
-        hint={lending ? 'Thêm khoản cho vay mới' : 'Thêm khoản vay mới'}
-        onPress={() =>
-          router.push({ pathname: '/loans/new', params: { direction } })
         }
       />
     </ScreenContainer>

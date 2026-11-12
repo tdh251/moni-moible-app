@@ -6,13 +6,13 @@ import {
   AmountInput,
   AppCard,
   Field,
-  PrimaryButton,
   ScreenContainer,
   s,
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
 import { makeAccount } from '../../database/repository';
 import { parseAmount } from '../../services/accounting/ledger';
+import { FormActions } from '../../components/ui/FormActions';
 export default function NewAccount() {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('0');
@@ -50,10 +50,10 @@ export default function NewAccount() {
           thu.
         </Text>
       </AppCard>
-      <PrimaryButton
-        label="Lưu tài khoản"
-        disabled={busy}
-        onPress={() => void save()}
+      <FormActions
+        busy={busy}
+        onCancel={() => router.back()}
+        onSave={() => void save()}
       />
     </ScreenContainer>
   );

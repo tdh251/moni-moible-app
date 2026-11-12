@@ -45,6 +45,7 @@ export function TagPicker({
       {options.length ? (
         <Dropdown
           multiple
+          searchable
           label="Tag"
           placeholder={filter ? 'Tất cả tag' : 'Chọn một hoặc nhiều tag'}
           options={options}

@@ -1,4 +1,13 @@
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
+export const migration20 = `
+CREATE TABLE IF NOT EXISTS transaction_drafts (
+ id TEXT PRIMARY KEY NOT NULL,
+ values_json TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+PRAGMA user_version=20;
+`;
 export const migration19 = `
 ALTER TABLE loans ADD COLUMN payment_time_minutes INTEGER NOT NULL DEFAULT 540 CHECK(typeof(payment_time_minutes)='integer' AND payment_time_minutes BETWEEN 0 AND 1439);
 PRAGMA user_version=19;

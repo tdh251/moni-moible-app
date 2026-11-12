@@ -1,16 +1,15 @@
 import { useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   Amount,
   AppCard,
   ConfirmationDialog,
   EmptyState,
-  Icon,
+  IconButton,
   s,
 } from '../../components/ui';
 import { showError, useFinance } from '../../hooks/finance';
 import { loanPaymentTotal } from '../../services/loans';
-import { colors } from '../../theme';
 import type { Account, LoanPayment } from '../../types/finance';
 
 export function LoanPaymentHistory({
@@ -40,6 +39,7 @@ export function LoanPaymentHistory({
         await ConfirmationDialog(
           lending ? 'Xóa lần thu hồi?' : 'Xóa lần trả nợ?',
           `Xóa lần ${lending ? 'thu hồi' : 'trả nợ'} ngày ${new Date(payment.occurred_at).toLocaleDateString('vi-VN')}? Số dư tài khoản và số tiền còn lại của khoản vay sẽ được tính lại.`,
+          true,
         )
       )
         await mutate((repo) => repo.deleteLoanPayment(payment.id));
@@ -61,23 +61,13 @@ export function LoanPaymentHistory({
             <Text style={[s.muted, { flex: 1 }]}>
               {new Date(payment.occurred_at).toLocaleDateString('vi-VN')}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${lending ? 'Xóa lần thu hồi' : 'Xóa lần trả nợ'} ngày ${new Date(payment.occurred_at).toLocaleDateString('vi-VN')}`}
-              accessibilityState={{ disabled: busy || deleting }}
+            <IconButton
+              label={`${lending ? 'Xóa lần thu hồi' : 'Xóa lần trả nợ'} ngày ${new Date(payment.occurred_at).toLocaleDateString('vi-VN')}`}
+              icon="trash-outline"
+              danger
               disabled={busy || deleting}
               onPress={() => void remove(payment)}
-              style={({ pressed }) => ({
-                minWidth: 44,
-                minHeight: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'transparent',
-                opacity: busy || deleting ? 0.45 : pressed ? 0.6 : 1,
-              })}
-            >
-              <Icon name="trash-outline" color={colors.expense} size={20} />
-            </Pressable>
+            />
           </View>
           <View style={s.between}>
             <Text style={[s.text, { flex: 1 }]}>

@@ -1,6 +1,5 @@
-import { Pressable, Text, View } from 'react-native';
-import { Icon, s } from './index';
-import { colors } from '../../theme';
+import { Text, View } from 'react-native';
+import { IconButton, s } from './index';
 
 export function EditorHeading({
   title,
@@ -24,43 +23,21 @@ export function EditorHeading({
       <Text style={[s.heading, { flex: 1 }]}>{title}</Text>
       <View style={{ flexDirection: 'row', gap: 4 }}>
         {onArchive && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={archiveLabel}
-            accessibilityState={{ disabled }}
+          <IconButton
+            label={archiveLabel}
+            icon={archived ? 'arrow-undo-outline' : 'archive-outline'}
             disabled={disabled}
             onPress={onArchive}
-            style={({ pressed }) => ({
-              minWidth: 44,
-              minHeight: 44,
-              justifyContent: 'center',
-              alignItems: 'center',
-              opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
-            })}
-          >
-            <Icon
-              name={archived ? 'arrow-undo-outline' : 'archive-outline'}
-              size={22}
-            />
-          </Pressable>
+          />
         )}
         {onDelete && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={deleteLabel}
-            accessibilityState={{ disabled }}
+          <IconButton
+            label={deleteLabel}
+            icon="trash-outline"
+            danger
             disabled={disabled}
             onPress={onDelete}
-            style={({ pressed }) => ({
-              minWidth: 44,
-              minHeight: 44,
-              justifyContent: 'center',
-              alignItems: 'center',
-              opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
-            })}
-          >
-            <Icon name="trash-outline" color={colors.expense} size={22} />
-          </Pressable>
+          />
         )}
       </View>
     </View>

@@ -6,13 +6,13 @@ import {
   ConfirmationDialog,
   EmptyState,
   ScreenContainer,
-  Icon,
+  IconButton,
   s,
 } from '../../components/ui';
 import { useFinance } from '../../hooks/finance';
 import { LoanReminderCard } from '../../features/loans/LoanReminderCard';
 import { LoanPaymentHistory } from '../../features/loans/LoanPaymentHistory';
-import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
+import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
 import { colors } from '../../theme';
 import {
   loanOutstanding,
@@ -47,6 +47,7 @@ export default function LoanDetail() {
         lending
           ? 'Khoản cho vay và các lần thu hồi sẽ được xóa. Số dư các tài khoản liên quan được tính lại. Chỉ dùng khi ghi nhầm khoản cho vay.'
           : 'Khoản vay và các lần trả nợ sẽ được xóa. Số dư các tài khoản liên quan được tính lại. Chỉ dùng khi ghi nhầm khoản vay.',
+        true,
       )
     ) {
       if (await mutate((repo) => repo.deleteLoan(id))) router.back();
@@ -58,8 +59,8 @@ export default function LoanDetail() {
       subtitle={lending ? 'Chi tiết cho vay' : 'Chi tiết khoản vay'}
       floatingAction={
         remaining > 0 ? (
-          <FloatingAddButton
-            visible
+          <FloatingActionButton
+            icon={lending ? 'arrow-down-outline' : 'arrow-up-outline'}
             label={lending ? 'Thu hồi tiền' : 'Trả nợ'}
             hint={
               lending
@@ -74,29 +75,20 @@ export default function LoanDetail() {
         ) : undefined
       }
       rightAction={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={lending ? 'Xóa khoản cho vay' : 'Xóa khoản vay'}
-          accessibilityState={{ disabled: busy }}
+        <IconButton
+          label={lending ? 'Xóa khoản cho vay' : 'Xóa khoản vay'}
+          icon="trash-outline"
+          danger
           disabled={busy}
           onPress={() => void remove()}
-          style={({ pressed }) => ({
-            minWidth: 48,
-            minHeight: 48,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: busy ? 0.45 : pressed ? 0.7 : 1,
-          })}
-        >
-          <Icon name="trash-outline" color={colors.expense} />
-        </Pressable>
+        />
       }
       back
     >
       <AppCard style={{ backgroundColor: colors.balance }}>
         <View style={[s.between, { flexWrap: 'wrap' }]}>
           <Text style={[s.heading, { flexShrink: 1, color: colors.card }]}>
-            Cần thanh toán
+            {lending ? 'Cần thu hồi' : 'Cần thanh toán'}
           </Text>
           <View
             style={{

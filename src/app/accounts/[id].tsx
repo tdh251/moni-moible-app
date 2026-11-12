@@ -1,6 +1,6 @@
 import { loanCashFlows } from '../../services/loans';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Amount,
@@ -18,11 +18,14 @@ import {
 import { useFinance, showError } from '../../hooks/finance';
 import { accountBalances, parseAmount } from '../../services/accounting/ledger';
 import { formatVnd } from '../../utils/format';
+import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
+import { FormActions } from '../../components/ui/FormActions';
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, mutate, busy } = useFinance();
   const a = data.accounts.find((x) => x.id === id);
   const [name, setName] = useState(a?.name ?? '');
+  const [editing, setEditing] = useState(false);
   const [adjust, setAdjust] = useState(false);
   const [opening, setOpening] = useState(String(a?.opening_balance ?? 0));
   if (!a)
@@ -71,6 +74,20 @@ export default function AccountDetail() {
       title={a.name}
       back
       subtitle={a.is_archived ? 'Tài khoản đã lưu trữ' : 'Chi tiết tài khoản'}
+      floatingAction={
+        !a.is_archived && !editing ? (
+          <FloatingActionButton
+            icon="create-outline"
+            label="Sửa tài khoản"
+            hint="Mở phần chỉnh sửa tên tài khoản"
+            disabled={busy}
+            onPress={() => {
+              setName(a.name);
+              setEditing(true);
+            }}
+          />
+        ) : undefined
+      }
     >
       <AppCard>
         <Text style={s.muted}>Số dư hiện tại</Text>
@@ -85,21 +102,45 @@ export default function AccountDetail() {
       </AppCard>
       {!a.is_archived && (
         <>
-          <AppCard>
-            <Field
-              label="Tên tài khoản"
-              value={name}
-              onChangeText={setName}
-              maxLength={100}
-            />
-            <SecondaryButton
-              label="Lưu tên tài khoản"
-              disabled={busy}
-              onPress={() =>
-                void mutate((repo) => repo.renameAccount(id, name))
-              }
-            />
-          </AppCard>
+          {editing && (
+            <Modal
+              animationType="slide"
+              onRequestClose={() => {
+                if (!busy) setEditing(false);
+              }}
+            >
+              <ScreenContainer
+                title="Sửa tài khoản"
+                subtitle="Cập nhật tên hiển thị của tài khoản."
+                onClose={() => setEditing(false)}
+                closeDisabled={busy}
+              >
+                <AppCard>
+                  <Field
+                    label="Tên tài khoản"
+                    value={name}
+                    onChangeText={setName}
+                    maxLength={100}
+                    editable={!busy}
+                  />
+                </AppCard>
+                <FormActions
+                  busy={busy}
+                  onCancel={() => {
+                    setName(a.name);
+                    setEditing(false);
+                  }}
+                  onSave={() => {
+                    void mutate((repo) => repo.renameAccount(id, name)).then(
+                      (saved) => {
+                        if (saved) setEditing(false);
+                      },
+                    );
+                  }}
+                />
+              </ScreenContainer>
+            </Modal>
+          )}
           <SecondaryButton
             label={adjust ? 'Đóng điều chỉnh' : 'Điều chỉnh số dư ban đầu'}
             disabled={busy}

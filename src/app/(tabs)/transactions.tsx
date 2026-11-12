@@ -18,7 +18,7 @@ import { usePreferences } from '../../stores/preferences';
 import { filterTransactions } from '../../services/accounting/ledger';
 import type { Transaction } from '../../types/finance';
 export default function History() {
-  const { data } = useFinance();
+  const { data, busy } = useFinance();
   const filters = usePreferences((v) => v.historyFilters);
   const set = usePreferences((v) => v.setFilters);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -38,9 +38,19 @@ export default function History() {
   }, [transactions]);
   return (
     <ScreenContainer
+      tabScreen
       title="Giao dịch"
       subtitle="Nhìn lại dòng tiền của bạn."
       scroll={false}
+      floatingAction={
+        <FloatingAddButton
+          visible={addButtonVisible}
+          label="Thêm giao dịch"
+          hint="Mở màn hình thêm giao dịch mới"
+          disabled={busy}
+          onPress={() => router.push('/transaction/new')}
+        />
+      }
     >
       <SectionList
         sections={sections}
@@ -52,6 +62,11 @@ export default function History() {
         scrollEventThrottle={16}
         ListHeaderComponent={
           <View style={{ gap: 14, paddingBottom: 20 }}>
+            <SecondaryButton
+              label={`Bản nháp (${data.transactionDrafts?.length ?? 0})`}
+              icon="document-text-outline"
+              onPress={() => router.push('/transaction/drafts')}
+            />
             <Field
               label="Tìm giao dịch"
               value={filters.search}
@@ -89,13 +104,7 @@ export default function History() {
             description="Thử đổi kỳ, tài khoản hoặc bộ lọc. Bạn cũng có thể ghi giao dịch mới."
           />
         }
-        contentContainerStyle={{ paddingBottom: 96 }}
-      />
-      <FloatingAddButton
-        visible={addButtonVisible}
-        label="Thêm giao dịch"
-        hint="Mở màn hình thêm giao dịch mới"
-        onPress={() => router.push('/transaction/new')}
+        contentContainerStyle={s.listContent}
       />
       {filterOpen && (
         <TransactionFiltersModal

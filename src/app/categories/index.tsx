@@ -13,17 +13,16 @@ export default function Categories() {
       back={!editing}
       scroll={false}
     >
-      <Choices
-        value={type}
-        onChange={(type) => {
-          setType(type);
-          setEditing(false);
-        }}
-        options={[
-          { value: 'expense', label: 'Chi tiêu' },
-          { value: 'income', label: 'Thu nhập' },
-        ]}
-      />
+      {!editing && (
+        <Choices
+          value={type}
+          onChange={setType}
+          options={[
+            { value: 'expense', label: 'Chi tiêu' },
+            { value: 'income', label: 'Thu nhập' },
+          ]}
+        />
+      )}
       <CategoryManager
         key={type}
         type={type}

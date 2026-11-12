@@ -36,6 +36,7 @@ import {
   parseAmount,
 } from '../../services/accounting/ledger';
 import { typeNames } from '../../utils/format';
+import type { SavedTransactionDraft } from '../../types/transaction-draft';
 import type { Transaction, TransactionType } from '../../types/finance';
 import {
   calculateReceipt,
@@ -58,53 +59,67 @@ interface ItemDraft {
 }
 export function TransactionForm({
   existing,
+  savedDraft,
   initialType = 'expense',
   initialAccount,
 }: {
   existing?: Transaction;
+  savedDraft?: SavedTransactionDraft;
   initialType?: TransactionType;
   initialAccount?: string;
 }) {
   const { data, mutate, busy } = useFinance();
+  const initial = savedDraft?.values;
   const [excludeFromBalance, setExcludeFromBalance] = useState(
-    existing?.exclude_from_balance === 1,
+    initial?.excludeFromBalance ?? existing?.exclude_from_balance === 1,
   );
-  const [draftId] = useState(() => existing?.id ?? randomUUID());
+  const [draftId] = useState(
+    () => savedDraft?.id ?? existing?.id ?? randomUUID(),
+  );
   const accounts = data.accounts.filter((a) => !a.is_archived);
   const [type, setType] = useState<TransactionType>(
-    existing?.type ?? initialType,
+    initial?.type ?? existing?.type ?? initialType,
   );
-  const [title, setTitle] = useState(existing?.title ?? '');
-  const [amount, setAmount] = useState(existing ? String(existing.amount) : '');
+  const [title, setTitle] = useState(initial?.title ?? existing?.title ?? '');
+  const [amount, setAmount] = useState(
+    initial?.amount ?? (existing ? String(existing.amount) : ''),
+  );
   const [source, setSource] = useState(
-    existing?.source_account_id ?? initialAccount ?? accounts[0]?.id ?? '',
+    initial?.source ??
+      existing?.source_account_id ??
+      initialAccount ??
+      accounts[0]?.id ??
+      '',
   );
   const [destination, setDestination] = useState(
-    existing?.destination_account_id ??
+    initial?.destination ??
+      existing?.destination_account_id ??
       (initialType === 'transfer'
         ? accounts[1]?.id
         : (initialAccount ?? accounts[0]?.id)) ??
       '',
   );
   const [date, setDate] = useState(
-    () => new Date(existing?.occurred_at ?? Date.now()),
+    () => new Date(initial?.occurred_at ?? existing?.occurred_at ?? Date.now()),
   );
   const [dateMode, setDateMode] = useState<'date' | 'time' | null>(null);
-  const [tagIds, setTagIds] = useState<string[]>(() =>
-    existing ? transactionTagIds(existing) : [],
+  const [tagIds, setTagIds] = useState<string[]>(
+    () => initial?.tagIds ?? (existing ? transactionTagIds(existing) : []),
   );
-  const [note, setNote] = useState(existing?.note ?? '');
+  const [note, setNote] = useState(initial?.note ?? existing?.note ?? '');
   const storedItems = data.items.filter(
     (i) => i.transaction_id === existing?.id,
   );
   const [mode, setMode] = useState<'categories' | 'items'>(
-    existing?.category_split !== 1 && storedItems.length > 0
-      ? 'items'
-      : 'categories',
+    initial?.mode ??
+      (existing?.category_split !== 1 && storedItems.length > 0
+        ? 'items'
+        : 'categories'),
   );
   const itemized = mode === 'items';
   const [allocations, setAllocations] = useState<CategoryAllocationDraft[]>(
     () => {
+      if (initial) return initial.allocations;
       const tags = existing ? transactionCategoryTags(existing) : [];
       if (tags.length)
         return tags.map((category) => ({
@@ -126,24 +141,27 @@ export function TransactionForm({
       return category ? [{ id: randomUUID(), category, amount: '' }] : [];
     },
   );
-  const [adjustments, setAdjustments] = useState<AdjustmentDraft[]>(() =>
-    parseAdjustments(existing?.adjustments_json).map((a) => ({
-      id: a.id,
-      name: a.name,
-      mode: a.kind === 'fixed' ? 'fixed' : 'percent',
-      percent: a.kind === 'fixed' ? '' : String(a.rate_bps / 100),
-      amount: a.kind === 'fixed' ? String(a.amount_vnd) : '',
-    })),
+  const [adjustments, setAdjustments] = useState<AdjustmentDraft[]>(
+    () =>
+      initial?.adjustments ??
+      parseAdjustments(existing?.adjustments_json).map((a) => ({
+        id: a.id,
+        name: a.name,
+        mode: a.kind === 'fixed' ? 'fixed' : 'percent',
+        percent: a.kind === 'fixed' ? '' : String(a.rate_bps / 100),
+        amount: a.kind === 'fixed' ? String(a.amount_vnd) : '',
+      })),
   );
   const [items, setItems] = useState<ItemDraft[]>(
-    (existing?.category_split === 1 ? [] : storedItems).map((i) => ({
-      id: i.id,
-      name: i.name,
-      amount: String(i.amount),
-      category: i.category_id,
-      categoryIds: itemCategoryIds(i),
-      tagIds: transactionTagIds(i),
-    })),
+    initial?.items ??
+      (existing?.category_split === 1 ? [] : storedItems).map((i) => ({
+        id: i.id,
+        name: i.name,
+        amount: String(i.amount),
+        category: i.category_id,
+        categoryIds: itemCategoryIds(i),
+        tagIds: transactionTagIds(i),
+      })),
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const activeItem =
@@ -226,6 +244,32 @@ export function TransactionForm({
     }
     setMode(next);
   };
+  const saveDraft = async () => {
+    if (!savedDraft || busy) return;
+    if (
+      await mutate((repo) =>
+        repo.saveTransactionDraft({
+          ...savedDraft,
+          values: {
+            type,
+            title,
+            amount,
+            source,
+            destination,
+            occurred_at: date.toISOString(),
+            excludeFromBalance,
+            tagIds,
+            note,
+            mode,
+            allocations,
+            adjustments,
+            items,
+          },
+        }),
+      )
+    )
+      router.back();
+  };
   const save = async () => {
     try {
       const id = draftId;
@@ -284,17 +328,34 @@ export function TransactionForm({
           receipt ? parseAdjustmentDrafts(adjustments) : [],
         ),
       };
-      if (await mutate((repo) => repo.saveTransaction(draft, !!existing)))
-        router.back();
+      if (
+        await mutate((repo) =>
+          repo.saveTransaction(draft, !!existing, savedDraft?.id),
+        )
+      ) {
+        if (savedDraft)
+          router.replace({ pathname: '/transaction/[id]', params: { id } });
+        else router.back();
+      }
     } catch (e) {
       showError(e);
     }
   };
   return (
     <ScreenContainer
-      title={existing ? 'Sửa giao dịch' : 'Ghi giao dịch'}
+      title={
+        savedDraft
+          ? 'Bản nháp giao dịch'
+          : existing
+            ? 'Sửa giao dịch'
+            : 'Ghi giao dịch'
+      }
       back
-      subtitle="Mỗi khoản nhỏ đều được ghi nhớ."
+      subtitle={
+        savedDraft
+          ? 'Chưa tính vào số dư và thống kê. Chọn Ghi giao dịch khi đã hoàn tất.'
+          : 'Mỗi khoản nhỏ đều được ghi nhớ.'
+      }
     >
       {existing ? (
         <Text style={s.heading}>{typeNames[type]}</Text>
@@ -579,8 +640,20 @@ export function TransactionForm({
           }}
         />
       )}
+      {savedDraft && (
+        <SecondaryButton
+          label={busy ? 'Đang lưu…' : 'Lưu nháp'}
+          icon="document-text-outline"
+          disabled={busy}
+          onPress={() => {
+            Keyboard.dismiss();
+            void saveDraft();
+          }}
+        />
+      )}
       <FormActions
         busy={busy}
+        saveLabel={savedDraft ? 'Ghi giao dịch' : 'Lưu'}
         onCancel={() => router.back()}
         onSave={() => void save()}
       />

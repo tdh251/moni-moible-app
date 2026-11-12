@@ -6,12 +6,13 @@ import {
 import { categoryPath } from '../../services/categories/hierarchy';
 import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { randomUUID } from 'expo-crypto';
 import {
   Amount,
   AppCard,
   ConfirmationDialog,
   EmptyState,
-  PrimaryButton,
+  IconButton,
   ScreenContainer,
   SecondaryButton,
   s,
@@ -19,6 +20,7 @@ import {
 import { useFinance } from '../../hooks/finance';
 import { typeNames } from '../../utils/format';
 import { colors } from '../../theme';
+import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
 import {
   calculateReceipt,
   parseAdjustments,
@@ -57,8 +59,40 @@ export default function TransactionDetail() {
       if (await mutate((repo) => repo.deleteTransaction(id))) router.back();
     }
   };
+  const duplicate = async () => {
+    if (busy) return;
+    const draftId = randomUUID();
+    if (await mutate((repo) => repo.duplicateTransaction(id, draftId)))
+      router.push({
+        pathname: '/transaction/drafts/[id]',
+        params: { id: draftId },
+      });
+  };
   return (
-    <ScreenContainer title="Chi tiết giao dịch" back>
+    <ScreenContainer
+      title="Chi tiết giao dịch"
+      back
+      floatingAction={
+        <FloatingActionButton
+          icon="create-outline"
+          label="Sửa giao dịch"
+          hint="Mở biểu mẫu sửa giao dịch này"
+          disabled={busy}
+          onPress={() =>
+            router.push({ pathname: '/transaction/edit/[id]', params: { id } })
+          }
+        />
+      }
+      rightAction={
+        <IconButton
+          label="Xóa giao dịch"
+          icon="trash-outline"
+          danger
+          disabled={busy}
+          onPress={() => void remove()}
+        />
+      }
+    >
       <AppCard>
         <Text style={s.muted}>{typeNames[t.type]}</Text>
         <Text style={s.title}>{t.title}</Text>
@@ -100,6 +134,12 @@ export default function TransactionDetail() {
           </Text>
         )}
       </AppCard>
+      <SecondaryButton
+        label="Nhân bản thành bản nháp"
+        icon="copy-outline"
+        disabled={busy}
+        onPress={() => void duplicate()}
+      />
       {!!items.length && (!tags.length || t.category_split !== 1) && (
         <AppCard>
           <Text style={s.heading}>
@@ -148,19 +188,6 @@ export default function TransactionDetail() {
           )}
         </AppCard>
       )}
-      <PrimaryButton
-        label="Sửa giao dịch"
-        disabled={busy}
-        onPress={() =>
-          router.push({ pathname: '/transaction/edit/[id]', params: { id } })
-        }
-      />
-      <SecondaryButton
-        label="Xóa giao dịch"
-        danger
-        disabled={busy}
-        onPress={() => void remove()}
-      />
     </ScreenContainer>
   );
 }
