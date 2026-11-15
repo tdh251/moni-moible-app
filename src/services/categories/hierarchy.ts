@@ -4,16 +4,22 @@ export function categoryPath(
   categories: Category[],
   id: string | null,
 ): string {
+  return createCategoryPathResolver(categories)(id);
+}
+
+export function createCategoryPathResolver(categories: Category[]) {
   const byId = new Map(categories.map((c) => [c.id, c]));
-  const names: string[] = [];
-  const seen = new Set<string>();
-  let current = id ? byId.get(id) : undefined;
-  while (current && !seen.has(current.id)) {
-    seen.add(current.id);
-    names.push(current.name);
-    current = current.parent_id ? byId.get(current.parent_id) : undefined;
-  }
-  return names.reverse().join(' › ');
+  return (id: string | null): string => {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    let current = id ? byId.get(id) : undefined;
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      names.push(current.name);
+      current = current.parent_id ? byId.get(current.parent_id) : undefined;
+    }
+    return names.reverse().join(' › ');
+  };
 }
 
 export function categoryDescendants(

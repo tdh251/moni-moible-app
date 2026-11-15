@@ -1,13 +1,11 @@
 import { FloatingActionButton } from './FloatingActionButton';
 
 export function FloatingAddButton({
-  visible,
   label,
   hint,
   onPress,
   disabled = false,
 }: {
-  visible: boolean;
   label: string;
   hint: string;
   onPress: () => void;
@@ -16,7 +14,7 @@ export function FloatingAddButton({
   return (
     <FloatingActionButton
       icon="add-outline"
-      visible={visible}
+      text="Thêm"
       label={label}
       hint={hint}
       disabled={disabled}

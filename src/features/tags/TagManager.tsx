@@ -1,9 +1,8 @@
 import { EditorHeading } from '../../components/ui/EditorHeading';
 import { FormActions } from '../../components/ui/FormActions';
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
-import { useScrollAddButton } from '../../hooks/useScrollAddButton';
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useDeferredValue, useMemo, useState } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import {
   Choices,
@@ -39,7 +38,6 @@ export function TagManager({
   onEditingChange?: (editing: boolean) => void;
 }) {
   const { data, mutate, busy } = useFinance();
-  const { addButtonVisible, handleScroll, resetScroll } = useScrollAddButton();
   const [draft, setDraftState] = useState<Tag | null>(() =>
     createOnly ? newTag() : null,
   );
@@ -48,15 +46,36 @@ export function TagManager({
     onEditingChange?.(!!value);
   };
   const edit = (tag: Tag) => {
-    resetScroll();
     setDraft({ ...tag });
   };
   const create = () => {
-    resetScroll();
     setDraft(newTag());
   };
   const [search, setSearch] = useState('');
   const [visibility, setVisibility] = useState<'active' | 'all'>('active');
+  const deferredSearch = useDeferredValue(search);
+  const query = normalizeIconSearch(deferredSearch);
+  const shown = useMemo(
+    () =>
+      (data.tags ?? []).filter(
+        (tag) =>
+          (visibility === 'all' || !tag.is_archived) &&
+          normalizeIconSearch(tag.name).includes(query),
+      ),
+    [data.tags, visibility, query],
+  );
+  const counts = useMemo(() => {
+    const result = new Map<string, number>();
+    const linked = new Map(
+      data.transactions.map((tx) => [tx.id, new Set(transactionTagIds(tx))]),
+    );
+    for (const item of data.items)
+      for (const id of transactionTagIds(item))
+        linked.get(item.transaction_id)?.add(id);
+    for (const ids of linked.values())
+      for (const id of ids) result.set(id, (result.get(id) ?? 0) + 1);
+    return result;
+  }, [data.transactions, data.items]);
   const exists = draft && (data.tags ?? []).some((t) => t.id === draft.id);
   const save = async () => {
     if (draft && (await mutate((repo) => repo.saveTag(draft)))) {
@@ -92,108 +111,105 @@ export function TagManager({
   };
   if (draft)
     return (
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: 16, paddingBottom: 24 }}
-      >
-        {!createOnly && (
-          <EditorHeading
-            title={exists ? 'Sửa tag' : 'Thêm tag'}
-            archiveLabel={draft.is_archived ? 'Khôi phục tag' : 'Lưu trữ tag'}
-            deleteLabel="Xóa tag"
-            archived={!!draft.is_archived}
-            disabled={busy}
-            onArchive={exists ? () => void archive() : undefined}
-            onDelete={exists ? () => void remove() : undefined}
-          />
-        )}
-        <View
-          style={[
-            s.row,
-            {
-              padding: 14,
-              borderRadius: 16,
-              backgroundColor: `${draft.color}18`,
-            },
-          ]}
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ gap: 16, paddingBottom: 24 }}
         >
-          <Icon name="pricetag-outline" color={draft.color} />
-          <Text style={s.text}>{draft.name.trim() || 'Tag của bạn'}</Text>
-        </View>
-        <Field
-          label="Tên tag"
-          placeholder="Ví dụ: Shopee, Tết, Khuyến mãi"
-          value={draft.name}
-          onChangeText={(name) => setDraft({ ...draft, name })}
-          maxLength={50}
-          editable={!busy}
-        />
-        <Text style={s.label}>Màu tag · 10 lựa chọn</Text>
-        <View style={[s.wrap, { gap: 0 }]}>
-          {categoryPalette.map((item) => (
-            <View
-              key={item.color}
-              style={{ width: '20%', padding: 4, alignItems: 'center' }}
-            >
-              <Pressable
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel={`Màu ${item.label}`}
-                accessibilityState={{
-                  selected: draft.color.toUpperCase() === item.color,
-                  disabled: busy,
-                }}
-                onPress={() => setDraft({ ...draft, color: item.color })}
-                style={{
-                  width: '100%',
-                  maxWidth: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 2,
-                  borderColor:
-                    draft.color.toUpperCase() === item.color
-                      ? colors.text
-                      : 'transparent',
-                }}
+          {!createOnly && (
+            <EditorHeading
+              title={exists ? 'Sửa tag' : 'Thêm tag'}
+              archiveLabel={draft.is_archived ? 'Khôi phục tag' : 'Lưu trữ tag'}
+              deleteLabel="Xóa tag"
+              archived={!!draft.is_archived}
+              disabled={busy}
+              onArchive={exists ? () => void archive() : undefined}
+              onDelete={exists ? () => void remove() : undefined}
+            />
+          )}
+          <View
+            style={[
+              s.row,
+              {
+                padding: 14,
+                borderRadius: 16,
+                backgroundColor: `${draft.color}18`,
+              },
+            ]}
+          >
+            <Icon name="pricetag-outline" color={draft.color} />
+            <Text style={s.text}>{draft.name.trim() || 'Tag của bạn'}</Text>
+          </View>
+          <Field
+            label="Tên tag"
+            placeholder="Ví dụ: Shopee, Tết, Khuyến mãi"
+            value={draft.name}
+            onChangeText={(name) => setDraft({ ...draft, name })}
+            maxLength={50}
+            editable={!busy}
+          />
+          <Text style={s.label}>Màu tag · 10 lựa chọn</Text>
+          <View style={[s.wrap, { gap: 0 }]}>
+            {categoryPalette.map((item) => (
+              <View
+                key={item.color}
+                style={{ width: '20%', padding: 4, alignItems: 'center' }}
               >
-                <View
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: item.color,
+                <Pressable
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Màu ${item.label}`}
+                  accessibilityState={{
+                    selected: draft.color.toUpperCase() === item.color,
+                    disabled: busy,
                   }}
-                />
-              </Pressable>
-            </View>
-          ))}
-        </View>
-        <FormActions
-          busy={busy}
-          onCancel={() => {
-            if (createOnly) onClose?.();
-            else setDraft(null);
+                  onPress={() => setDraft({ ...draft, color: item.color })}
+                  style={{
+                    width: '100%',
+                    maxWidth: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 2,
+                    borderColor:
+                      draft.color.toUpperCase() === item.color
+                        ? colors.text
+                        : 'transparent',
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      backgroundColor: item.color,
+                    }}
+                  />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            paddingVertical: 12,
           }}
-          onSave={() => void save()}
-        />
-      </ScrollView>
+        >
+          <FormActions
+            saveLabel={exists ? 'Lưu thay đổi' : 'Lưu tag'}
+            busy={busy}
+            onCancel={() => {
+              if (createOnly) onClose?.();
+              else setDraft(null);
+            }}
+            onSave={() => void save()}
+          />
+        </View>
+      </View>
     );
-  const shown = (data.tags ?? []).filter(
-    (t) =>
-      (visibility === 'all' || !t.is_archived) &&
-      normalizeIconSearch(t.name).includes(normalizeIconSearch(search)),
-  );
-  const counts = new Map<string, number>();
-  const linked = new Map(
-    data.transactions.map((tx) => [tx.id, new Set(transactionTagIds(tx))]),
-  );
-  for (const item of data.items)
-    for (const id of transactionTagIds(item))
-      linked.get(item.transaction_id)?.add(id);
-  for (const ids of linked.values())
-    for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
   return (
     <>
       <View style={{ flex: 1, gap: 12 }}>
@@ -211,20 +227,23 @@ export function TagManager({
             { value: 'all', label: 'Tất cả' },
           ]}
         />
-        <ScrollView
+        <FlatList
+          data={shown}
+          keyExtractor={(tag) => tag.id}
+          extraData={counts}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
           keyboardShouldPersistTaps="handled"
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: floatingAdd ? 96 : 0 }}
-          onScroll={floatingAdd ? handleScroll : undefined}
-          scrollEventThrottle={16}
-        >
-          {!shown.length && (
+          ListEmptyComponent={
             <EmptyState
               title="Chưa có tag phù hợp"
               description="Thêm tag để nhóm giao dịch theo cửa hàng, dịp hoặc mục đích của bạn."
             />
-          )}
-          {shown.map((tag) => (
+          }
+          renderItem={({ item: tag }) => (
             <View
               key={tag.id}
               style={[
@@ -262,8 +281,8 @@ export function TagManager({
                 <Icon name="create-outline" />
               </Pressable>
             </View>
-          ))}
-        </ScrollView>
+          )}
+        />
         {!floatingAdd && (
           <PrimaryButton
             label="Thêm tag"
@@ -278,7 +297,6 @@ export function TagManager({
       </View>
       {floatingAdd && (
         <FloatingAddButton
-          visible={addButtonVisible}
           label="Thêm tag"
           hint="Mở biểu mẫu thêm tag"
           disabled={busy}

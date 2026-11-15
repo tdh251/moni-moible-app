@@ -1,5 +1,6 @@
 import { loanCashFlows } from '../../services/loans';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { createTransactionListIndex } from '../../services/transaction-list';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -11,18 +12,22 @@ import {
   Field,
   PrimaryButton,
   ScreenContainer,
-  SecondaryButton,
+  TextButton,
   TransactionRow,
   s,
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
 import { accountBalances, parseAmount } from '../../services/accounting/ledger';
 import { formatVnd } from '../../utils/format';
-import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import { FormActions } from '../../components/ui/FormActions';
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, mutate, busy } = useFinance();
+  const transactionIndex = useMemo(
+    () => createTransactionListIndex(data),
+    [data],
+  );
   const a = data.accounts.find((x) => x.id === id);
   const [name, setName] = useState(a?.name ?? '');
   const [editing, setEditing] = useState(false);
@@ -74,16 +79,67 @@ export default function AccountDetail() {
       title={a.name}
       back
       subtitle={a.is_archived ? 'Tài khoản đã lưu trữ' : 'Chi tiết tài khoản'}
-      floatingAction={
-        !a.is_archived && !editing ? (
-          <FloatingActionButton
-            icon="create-outline"
-            label="Sửa tài khoản"
-            hint="Mở phần chỉnh sửa tên tài khoản"
+      rightAction={
+        <View style={s.row}>
+          {!a.is_archived && (
+            <TextButton
+              label={adjust ? 'Hủy điều chỉnh' : 'Sửa'}
+              disabled={busy}
+              onPress={() => {
+                if (adjust) {
+                  setAdjust(false);
+                  return;
+                }
+                setName(a.name);
+                setEditing(true);
+              }}
+            />
+          )}
+          {(!a.is_archived || a.type === 'bank') && (
+            <ActionMenu
+              label="Thao tác tài khoản"
+              disabled={busy}
+              actions={[
+                ...(!a.is_archived
+                  ? [
+                      {
+                        label: 'Điều chỉnh số dư ban đầu',
+                        icon: 'options-outline' as const,
+                        onPress: () => {
+                          setOpening(String(a.opening_balance));
+                          setAdjust(true);
+                        },
+                      },
+                    ]
+                  : []),
+                ...(a.type === 'bank'
+                  ? [
+                      {
+                        label: a.is_archived
+                          ? 'Khôi phục tài khoản'
+                          : 'Lưu trữ tài khoản',
+                        icon: 'archive-outline' as const,
+                        onPress: () => void archive(),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
+        </View>
+      }
+      footer={
+        !a.is_archived ? (
+          <PrimaryButton
+            label={adjust ? 'Xem lại & xác nhận' : 'Ghi giao dịch'}
             disabled={busy}
             onPress={() => {
-              setName(a.name);
-              setEditing(true);
+              if (adjust) void saveOpening();
+              else
+                router.push({
+                  pathname: '/transaction/new',
+                  params: { account: id },
+                });
             }}
           />
         ) : undefined
@@ -114,6 +170,21 @@ export default function AccountDetail() {
                 subtitle="Cập nhật tên hiển thị của tài khoản."
                 onClose={() => setEditing(false)}
                 closeDisabled={busy}
+                footer={
+                  <FormActions
+                    showCancel={false}
+                    saveLabel="Lưu thay đổi"
+                    busy={busy}
+                    onCancel={() => setEditing(false)}
+                    onSave={() => {
+                      void mutate((repo) => repo.renameAccount(id, name)).then(
+                        (saved) => {
+                          if (saved) setEditing(false);
+                        },
+                      );
+                    }}
+                  />
+                }
               >
                 <AppCard>
                   <Field
@@ -124,60 +195,20 @@ export default function AccountDetail() {
                     editable={!busy}
                   />
                 </AppCard>
-                <FormActions
-                  busy={busy}
-                  onCancel={() => {
-                    setName(a.name);
-                    setEditing(false);
-                  }}
-                  onSave={() => {
-                    void mutate((repo) => repo.renameAccount(id, name)).then(
-                      (saved) => {
-                        if (saved) setEditing(false);
-                      },
-                    );
-                  }}
-                />
               </ScreenContainer>
             </Modal>
           )}
-          <SecondaryButton
-            label={adjust ? 'Đóng điều chỉnh' : 'Điều chỉnh số dư ban đầu'}
-            disabled={busy}
-            onPress={() => setAdjust(!adjust)}
-          />
           {adjust && (
             <AppCard>
+              <Text style={s.heading}>Điều chỉnh số dư ban đầu</Text>
               <Text style={s.muted}>
                 Chỉ dùng khi bạn nhập sai số dư lúc bắt đầu. Để ghi tiền thực
                 nhận hoặc thực chi, hãy tạo giao dịch.
               </Text>
               <AmountInput value={opening} onChangeText={setOpening} />
-              <PrimaryButton
-                label="Xem lại & xác nhận"
-                disabled={busy}
-                onPress={() => void saveOpening()}
-              />
             </AppCard>
           )}
-          <PrimaryButton
-            label="Ghi giao dịch từ tài khoản"
-            disabled={busy}
-            onPress={() =>
-              router.push({
-                pathname: '/transaction/new',
-                params: { account: id },
-              })
-            }
-          />
         </>
-      )}
-      {a.type === 'bank' && (
-        <SecondaryButton
-          label={a.is_archived ? 'Khôi phục tài khoản' : 'Lưu trữ tài khoản'}
-          disabled={busy}
-          onPress={() => void archive()}
-        />
       )}
       {loanFlows.length > 0 && (
         <AppCard>
@@ -216,7 +247,11 @@ export default function AccountDetail() {
       <AppCard>
         {transactions.length ? (
           transactions.map((t) => (
-            <TransactionRow key={t.id} transaction={t} ledger={data} />
+            <TransactionRow
+              key={t.id}
+              transaction={t}
+              index={transactionIndex}
+            />
           ))
         ) : (
           <EmptyState

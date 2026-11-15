@@ -1,5 +1,4 @@
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
-import { useScrollAddButton } from '../../hooks/useScrollAddButton';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router, Redirect } from 'expo-router';
 import { Amount, AppCard, Icon, ScreenContainer, s } from '../../components/ui';
@@ -11,7 +10,6 @@ import {
 import { colors } from '../../theme';
 export default function Accounts() {
   const { data, busy } = useFinance();
-  const { addButtonVisible, handleScroll } = useScrollAddButton();
   const balances = accountBalances(data);
   if (!data.onboarded) return <Redirect href="/onboarding" />;
   return (
@@ -22,7 +20,6 @@ export default function Accounts() {
       scroll={false}
       floatingAction={
         <FloatingAddButton
-          visible={addButtonVisible}
           label="Thêm tài khoản ngân hàng"
           hint="Mở màn hình thêm tài khoản ngân hàng"
           disabled={busy}
@@ -31,8 +28,6 @@ export default function Accounts() {
       }
     >
       <ScrollView
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.listContent, { gap: 18 }]}
       >

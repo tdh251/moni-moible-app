@@ -6,19 +6,13 @@ export default function RepayLoan() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data } = useFinance();
   const loan = data.loans?.find((loan) => loan.id === id);
+  if (loan) return <LoanForm loan={loan} />;
   return (
-    <ScreenContainer
-      title={loan?.direction === 'lend' ? 'Thu hồi cho vay' : 'Trả nợ'}
-      back
-    >
-      {loan ? (
-        <LoanForm loan={loan} />
-      ) : (
-        <EmptyState
-          title="Không tìm thấy khoản vay"
-          description="Vui lòng quay lại danh sách."
-        />
-      )}
+    <ScreenContainer title="Khoản vay" back>
+      <EmptyState
+        title="Không tìm thấy khoản vay"
+        description="Vui lòng quay lại danh sách."
+      />
     </ScreenContainer>
   );
 }

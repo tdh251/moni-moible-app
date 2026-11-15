@@ -28,11 +28,15 @@ export default function Statistics() {
   const set = usePreferences((v) => v.setFilters);
   const [mode, setMode] = useState<CategoryType>('expense');
   const summary = useMemo(() => statistics(data, filters), [data, filters]);
-  const visibleRows = categoryReportRows(
-    data.categories.filter((c) => c.type === mode),
-    summary.categories,
-    null,
-    summary.categoryTotals,
+  const visibleRows = useMemo(
+    () =>
+      categoryReportRows(
+        data.categories.filter((c) => c.type === mode),
+        summary.categories,
+        null,
+        summary.categoryTotals,
+      ),
+    [data.categories, mode, summary.categories, summary.categoryTotals],
   );
   const total = summary.hasCategoryTags
     ? mode === 'expense'

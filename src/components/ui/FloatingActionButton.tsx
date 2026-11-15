@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Animated, Keyboard, Pressable } from 'react-native';
+import { useEffect } from 'react';
+import { Keyboard, Text } from 'react-native';
+import Animated, {
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Icon, type IconName } from './index';
 import { colors, layout } from '../../theme';
+import { motion } from '../../theme/motion';
+import { useReducedMotionPreference } from '../../hooks/motion';
+import { MotionPressable } from './MotionPressable';
 
 export function FloatingActionButton({
   visible = true,
@@ -10,6 +19,7 @@ export function FloatingActionButton({
   icon,
   onPress,
   disabled = false,
+  text,
 }: {
   visible?: boolean;
   label: string;
@@ -17,31 +27,40 @@ export function FloatingActionButton({
   icon: IconName;
   onPress: () => void;
   disabled?: boolean;
+  text?: string;
 }) {
-  const [progress] = useState(() => new Animated.Value(visible ? 1 : 0));
+  const progress = useSharedValue(visible ? 1 : 0);
+  const reducedMotion = useReducedMotionPreference();
   useEffect(() => {
-    const animation = Animated.timing(progress, {
-      toValue: visible ? 1 : 0,
-      duration: 160,
-      useNativeDriver: true,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [progress, visible]);
+    progress.set(
+      withTiming(visible ? 1 : 0, {
+        duration: reducedMotion ? 0 : motion.transition,
+        reduceMotion: ReduceMotion.System,
+      }),
+    );
+  }, [progress, visible, reducedMotion]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.get(),
+    transform: [
+      { scale: reducedMotion ? 1 : 0.9 + progress.get() * 0.1 },
+      { translateY: reducedMotion ? 0 : (1 - progress.get()) * 12 },
+    ],
+  }));
   return (
     <Animated.View
       pointerEvents={visible ? 'auto' : 'none'}
       accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
-      style={{
-        position: 'absolute',
-        right: layout.screenPadding,
-        bottom: layout.floatingButtonBottom,
-        opacity: progress,
-        transform: [{ scale: progress }],
-      }}
+      style={[
+        {
+          position: 'absolute',
+          right: layout.screenPadding,
+          bottom: layout.floatingButtonBottom,
+        },
+        animatedStyle,
+      ]}
     >
-      <Pressable
+      <MotionPressable
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityHint={hint}
@@ -51,23 +70,33 @@ export function FloatingActionButton({
           Keyboard.dismiss();
           onPress();
         }}
-        style={({ pressed }) => ({
+        style={{
           alignItems: 'center',
           justifyContent: 'center',
-          width: layout.floatingButtonSize,
+          minWidth: layout.floatingButtonSize,
+          width: text ? undefined : layout.floatingButtonSize,
+          paddingHorizontal: text ? 18 : 0,
+          flexDirection: 'row',
+          gap: 8,
           height: layout.floatingButtonSize,
           borderRadius: layout.floatingButtonSize / 2,
           backgroundColor: colors.primary,
-          opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
           elevation: 5,
           shadowColor: colors.text,
           shadowOffset: { width: 0, height: 3 },
           shadowOpacity: 0.18,
           shadowRadius: 8,
-        })}
+        }}
       >
-        <Icon name={icon} color={colors.onPrimary} size={28} />
-      </Pressable>
+        <Icon name={icon} color={colors.onPrimary} size={24} />
+        {text && (
+          <Text
+            style={{ color: colors.onPrimary, fontSize: 15, fontWeight: '600' }}
+          >
+            {text}
+          </Text>
+        )}
+      </MotionPressable>
     </Animated.View>
   );
 }

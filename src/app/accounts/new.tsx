@@ -31,7 +31,20 @@ export default function NewAccount() {
     }
   };
   return (
-    <ScreenContainer title="Thêm ngân hàng" back>
+    <ScreenContainer
+      title="Thêm tài khoản"
+      back
+      backDisabled={busy}
+      footer={
+        <FormActions
+          busy={busy}
+          showCancel={false}
+          saveLabel="Lưu tài khoản"
+          onCancel={() => router.back()}
+          onSave={() => void save()}
+        />
+      }
+    >
       <AppCard>
         <Field
           label="Tên tài khoản"
@@ -50,11 +63,6 @@ export default function NewAccount() {
           thu.
         </Text>
       </AppCard>
-      <FormActions
-        busy={busy}
-        onCancel={() => router.back()}
-        onSave={() => void save()}
-      />
     </ScreenContainer>
   );
 }

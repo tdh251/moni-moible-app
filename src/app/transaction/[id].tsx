@@ -12,15 +12,14 @@ import {
   AppCard,
   ConfirmationDialog,
   EmptyState,
-  IconButton,
   ScreenContainer,
-  SecondaryButton,
+  TextButton,
   s,
 } from '../../components/ui';
 import { useFinance } from '../../hooks/finance';
 import { typeNames } from '../../utils/format';
 import { colors } from '../../theme';
-import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import {
   calculateReceipt,
   parseAdjustments,
@@ -72,25 +71,36 @@ export default function TransactionDetail() {
     <ScreenContainer
       title="Chi tiết giao dịch"
       back
-      floatingAction={
-        <FloatingActionButton
-          icon="create-outline"
-          label="Sửa giao dịch"
-          hint="Mở biểu mẫu sửa giao dịch này"
-          disabled={busy}
-          onPress={() =>
-            router.push({ pathname: '/transaction/edit/[id]', params: { id } })
-          }
-        />
-      }
       rightAction={
-        <IconButton
-          label="Xóa giao dịch"
-          icon="trash-outline"
-          danger
-          disabled={busy}
-          onPress={() => void remove()}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TextButton
+            label="Sửa"
+            disabled={busy}
+            onPress={() =>
+              router.push({
+                pathname: '/transaction/edit/[id]',
+                params: { id },
+              })
+            }
+          />
+          <ActionMenu
+            label="Thao tác giao dịch"
+            disabled={busy}
+            actions={[
+              {
+                label: 'Nhân bản thành bản nháp',
+                icon: 'copy-outline',
+                onPress: () => void duplicate(),
+              },
+              {
+                label: 'Xóa giao dịch',
+                icon: 'trash-outline',
+                danger: true,
+                onPress: () => void remove(),
+              },
+            ]}
+          />
+        </View>
       }
     >
       <AppCard>
@@ -134,12 +144,6 @@ export default function TransactionDetail() {
           </Text>
         )}
       </AppCard>
-      <SecondaryButton
-        label="Nhân bản thành bản nháp"
-        icon="copy-outline"
-        disabled={busy}
-        onPress={() => void duplicate()}
-      />
       {!!items.length && (!tags.length || t.category_split !== 1) && (
         <AppCard>
           <Text style={s.heading}>

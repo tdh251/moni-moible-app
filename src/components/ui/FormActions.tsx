@@ -1,5 +1,5 @@
 import { Keyboard, View } from 'react-native';
-import { PrimaryButton, SecondaryButton, s } from './index';
+import { PrimaryButton, TextButton, s } from './index';
 
 export function FormActions({
   onCancel,
@@ -7,26 +7,30 @@ export function FormActions({
   busy = false,
   saveDisabled = false,
   saveLabel = 'Lưu',
+  showCancel = true,
 }: {
   onCancel: () => void;
   onSave: () => void;
   busy?: boolean;
   saveDisabled?: boolean;
   saveLabel?: string;
+  showCancel?: boolean;
 }) {
   return (
-    <View style={[s.row, { justifyContent: 'flex-end' }]}>
-      <View style={{ minWidth: 100 }}>
-        <SecondaryButton
-          label="Hủy"
-          disabled={busy}
-          onPress={() => {
-            Keyboard.dismiss();
-            onCancel();
-          }}
-        />
-      </View>
-      <View style={{ minWidth: 100 }}>
+    <View style={s.row}>
+      {showCancel && (
+        <View>
+          <TextButton
+            label="Hủy"
+            disabled={busy}
+            onPress={() => {
+              Keyboard.dismiss();
+              onCancel();
+            }}
+          />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
         <PrimaryButton
           label={busy ? 'Đang lưu…' : saveLabel}
           disabled={busy || saveDisabled}

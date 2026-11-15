@@ -5,6 +5,8 @@ import { FinanceProvider } from '../hooks/finance';
 import { APP_NAME } from '../constants/app';
 import { EmptyState, PrimaryButton, ScreenContainer } from '../components/ui';
 import { colors } from '../theme';
+import { MotionProvider, useReducedMotionPreference } from '../hooks/motion';
+import { motion } from '../theme/motion';
 export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
   return (
     <ScreenContainer title={APP_NAME}>
@@ -18,16 +20,28 @@ export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
 }
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <FinanceProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        />
-      </FinanceProvider>
-    </SafeAreaProvider>
+    <MotionProvider>
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <FinanceProvider>
+          <RootNavigator />
+        </FinanceProvider>
+      </SafeAreaProvider>
+    </MotionProvider>
+  );
+}
+
+function RootNavigator() {
+  const reducedMotion = useReducedMotionPreference();
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+        animation: reducedMotion ? 'none' : 'slide_from_right',
+        animationDuration: motion.transition,
+        freezeOnBlur: true,
+      }}
+    />
   );
 }

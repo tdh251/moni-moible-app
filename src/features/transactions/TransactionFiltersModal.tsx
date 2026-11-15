@@ -32,6 +32,7 @@ import {
 import { typeNames } from '../../utils/format';
 import type { Filters, TransactionType } from '../../types/finance';
 import { colors } from '../../theme';
+import { useReducedMotionPreference } from '../../hooks/motion';
 
 export function TransactionFiltersModal({
   initialValue,
@@ -43,6 +44,7 @@ export function TransactionFiltersModal({
   onClose: () => void;
 }) {
   const { data } = useFinance();
+  const reducedMotion = useReducedMotionPreference();
   const [draft, setDraft] = useState<Filters>(() => ({
     ...initialValue,
     account: initialValue.account || initialValue.accounts?.[0] || '',
@@ -87,7 +89,12 @@ export function TransactionFiltersModal({
     }
   };
   return (
-    <Modal transparent visible animationType="fade" onRequestClose={close}>
+    <Modal
+      transparent
+      visible
+      animationType={reducedMotion ? 'none' : 'fade'}
+      onRequestClose={close}
+    >
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}>
         <Pressable
           accessibilityRole="button"

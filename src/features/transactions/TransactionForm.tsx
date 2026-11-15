@@ -26,6 +26,7 @@ import {
   Icon,
   ScreenContainer,
   SecondaryButton,
+  TextButton,
   s,
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
@@ -351,6 +352,34 @@ export function TransactionForm({
             : 'Ghi giao dịch'
       }
       back
+      backDisabled={busy}
+      rightAction={
+        savedDraft ? (
+          <TextButton
+            label={busy ? 'Đang lưu…' : 'Lưu nháp'}
+            disabled={busy}
+            onPress={() => {
+              Keyboard.dismiss();
+              void saveDraft();
+            }}
+          />
+        ) : undefined
+      }
+      footer={
+        <FormActions
+          busy={busy}
+          showCancel={false}
+          saveLabel={
+            savedDraft
+              ? 'Ghi giao dịch'
+              : existing
+                ? 'Lưu thay đổi'
+                : 'Lưu giao dịch'
+          }
+          onCancel={() => router.back()}
+          onSave={() => void save()}
+        />
+      }
       subtitle={
         savedDraft
           ? 'Chưa tính vào số dư và thống kê. Chọn Ghi giao dịch khi đã hoàn tất.'
@@ -640,23 +669,6 @@ export function TransactionForm({
           }}
         />
       )}
-      {savedDraft && (
-        <SecondaryButton
-          label={busy ? 'Đang lưu…' : 'Lưu nháp'}
-          icon="document-text-outline"
-          disabled={busy}
-          onPress={() => {
-            Keyboard.dismiss();
-            void saveDraft();
-          }}
-        />
-      )}
-      <FormActions
-        busy={busy}
-        saveLabel={savedDraft ? 'Ghi giao dịch' : 'Lưu'}
-        onCancel={() => router.back()}
-        onSave={() => void save()}
-      />
     </ScreenContainer>
   );
 }

@@ -1,8 +1,49 @@
 import { Text, View } from 'react-native';
+import { memo, useEffect, useMemo } from 'react';
+import Animated, {
+  FadeIn,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Circle, G } from 'react-native-svg';
 import { Amount, s } from '../../components/ui';
 import { colors } from '../../theme';
-export function IncomeExpenseChart({
+import { useReducedMotionPreference } from '../../hooks/motion';
+import { motion } from '../../theme/motion';
+
+function ChartBar({ ratio, color }: { ratio: number; color: string }) {
+  const progress = useSharedValue(0);
+  const reducedMotion = useReducedMotionPreference();
+  useEffect(() => {
+    progress.set(
+      withTiming(ratio, {
+        duration: reducedMotion ? 0 : motion.chart,
+        reduceMotion: ReduceMotion.System,
+      }),
+    );
+  }, [progress, ratio, reducedMotion]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleX: progress.get() }],
+  }));
+  return (
+    <Animated.View
+      style={[
+        {
+          height: '100%',
+          width: '100%',
+          backgroundColor: color,
+          borderRadius: 8,
+          transformOrigin: 'left',
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+export const IncomeExpenseChart = memo(function IncomeExpenseChart({
   income,
   expense,
 }: {
@@ -30,21 +71,17 @@ export function IncomeExpenseChart({
               overflow: 'hidden',
             }}
           >
-            <View
-              style={{
-                height: '100%',
-                width: `${(row.value / max) * 100}%`,
-                backgroundColor: row.color,
-                borderRadius: 8,
-              }}
-            />
+            <ChartBar ratio={row.value / max} color={row.color} />
           </View>
         </View>
       ))}
     </View>
   );
-}
-export function DonutChart({
+});
+const chartEntering = FadeIn.duration(motion.chart).reduceMotion(
+  ReduceMotion.System,
+);
+export const DonutChart = memo(function DonutChart({
   rows,
   total,
 }: {
@@ -53,15 +90,25 @@ export function DonutChart({
 }) {
   const radius = 66;
   const circumference = 2 * Math.PI * radius;
-  const segments = rows.map((row, index) => ({
-    ...row,
-    length: (row.amount / total) * circumference,
-    offset: rows
-      .slice(0, index)
-      .reduce((sum, r) => sum + (r.amount / total) * circumference, 0),
-  }));
+  const reducedMotion = useReducedMotionPreference();
+  const segments = useMemo(() => {
+    const result: {
+      id: string;
+      color: string;
+      length: number;
+      offset: number;
+    }[] = [];
+    let offset = 0;
+    for (const row of rows) {
+      const length = total > 0 ? (row.amount / total) * circumference : 0;
+      result.push({ id: row.id, color: row.color, length, offset });
+      offset += length;
+    }
+    return result;
+  }, [rows, total, circumference]);
   return (
-    <View
+    <Animated.View
+      entering={reducedMotion ? undefined : chartEntering}
       style={{ alignItems: 'center', justifyContent: 'center', height: 190 }}
     >
       <Svg
@@ -101,6 +148,6 @@ export function DonutChart({
         <Text style={s.muted}>Tổng trong kỳ</Text>
         <Amount value={total} style={{ fontSize: 15 }} />
       </View>
-    </View>
+    </Animated.View>
   );
-}
+});

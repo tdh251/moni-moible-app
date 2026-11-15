@@ -7,14 +7,16 @@ export function TagBadges({
   tags,
 }: {
   transaction: Pick<Transaction, 'tag_ids_json'>;
-  tags: Tag[];
+  tags: Tag[] | ReadonlyMap<string, Tag>;
 }) {
   const ids = transactionTagIds(transaction);
   if (!ids.length) return null;
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
       {ids.map((id) => {
-        const tag = tags.find((t) => t.id === id);
+        const tag = Array.isArray(tags)
+          ? tags.find((t) => t.id === id)
+          : tags.get(id);
         return tag ? (
           <Text
             key={id}

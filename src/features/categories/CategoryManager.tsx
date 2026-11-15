@@ -1,7 +1,6 @@
 import { EditorHeading } from '../../components/ui/EditorHeading';
 import { FormActions } from '../../components/ui/FormActions';
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
-import { useScrollAddButton } from '../../hooks/useScrollAddButton';
 import { CategoryAppearancePicker } from './CategoryAppearancePicker';
 import {
   itemCategoryIds,
@@ -53,7 +52,6 @@ export function CategoryManager({
   onEditingChange?: (editing: boolean) => void;
 }) {
   const { data, mutate, busy } = useFinance();
-  const { addButtonVisible, handleScroll, resetScroll } = useScrollAddButton();
   const [draft, setDraftState] = useState<Category | null>(() =>
     createOnly ? newCategory(type) : null,
   );
@@ -65,7 +63,6 @@ export function CategoryManager({
   const visible = onSelect ? list.filter((c) => !c.is_archived) : list;
   const exists = draft && data.categories.some((c) => c.id === draft.id);
   const create = () => {
-    resetScroll();
     setDraft(newCategory(type));
   };
   const save = async () => {
@@ -115,54 +112,65 @@ export function CategoryManager({
   };
   if (draft)
     return (
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: 18, paddingBottom: 24 }}
-      >
-        {!createOnly && (
-          <>
-            <EditorHeading
-              title={exists ? 'Sửa danh mục' : 'Thêm danh mục'}
-              archiveLabel={
-                draft.is_archived ? 'Khôi phục danh mục' : 'Lưu trữ danh mục'
-              }
-              deleteLabel="Xóa danh mục"
-              archived={!!draft.is_archived}
-              disabled={busy}
-              onArchive={exists ? () => void archive() : undefined}
-              onDelete={exists ? () => void remove() : undefined}
-            />
-            <Text style={s.muted}>
-              {type === 'expense' ? 'Chi tiêu' : 'Thu nhập'}
-            </Text>
-          </>
-        )}
-        <Field
-          label="Tên danh mục"
-          value={draft.name}
-          onChangeText={(name) => setDraft({ ...draft, name })}
-          maxLength={100}
-          editable={!busy}
-        />
-        <CategoryAppearancePicker
-          searchable={!createOnly}
-          key={draft.id}
-          name={draft.name}
-          icon={draft.icon}
-          color={draft.color}
-          disabled={busy}
-          onIconChange={(icon) => setDraft({ ...draft, icon })}
-          onColorChange={(color) => setDraft({ ...draft, color })}
-        />
-        <FormActions
-          busy={busy}
-          onCancel={() => {
-            if (createOnly) onClose?.();
-            else setDraft(null);
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ gap: 18, paddingBottom: 24 }}
+        >
+          {!createOnly && (
+            <>
+              <EditorHeading
+                title={exists ? 'Sửa danh mục' : 'Thêm danh mục'}
+                archiveLabel={
+                  draft.is_archived ? 'Khôi phục danh mục' : 'Lưu trữ danh mục'
+                }
+                deleteLabel="Xóa danh mục"
+                archived={!!draft.is_archived}
+                disabled={busy}
+                onArchive={exists ? () => void archive() : undefined}
+                onDelete={exists ? () => void remove() : undefined}
+              />
+              <Text style={s.muted}>
+                {type === 'expense' ? 'Chi tiêu' : 'Thu nhập'}
+              </Text>
+            </>
+          )}
+          <Field
+            label="Tên danh mục"
+            value={draft.name}
+            onChangeText={(name) => setDraft({ ...draft, name })}
+            maxLength={100}
+            editable={!busy}
+          />
+          <CategoryAppearancePicker
+            searchable={!createOnly}
+            key={draft.id}
+            name={draft.name}
+            icon={draft.icon}
+            color={draft.color}
+            disabled={busy}
+            onIconChange={(icon) => setDraft({ ...draft, icon })}
+            onColorChange={(color) => setDraft({ ...draft, color })}
+          />
+        </ScrollView>
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            paddingVertical: 12,
           }}
-          onSave={() => void save()}
-        />
-      </ScrollView>
+        >
+          <FormActions
+            saveLabel={exists ? 'Lưu thay đổi' : 'Lưu danh mục'}
+            busy={busy}
+            onCancel={() => {
+              if (createOnly) onClose?.();
+              else setDraft(null);
+            }}
+            onSave={() => void save()}
+          />
+        </View>
+      </View>
     );
   return (
     <>
@@ -173,13 +181,11 @@ export function CategoryManager({
         </Text>
         <CategoryList
           categories={visible}
-          onScroll={floatingAdd ? handleScroll : undefined}
           bottomPadding={floatingAdd ? 96 : 4}
           busy={busy}
           value={value}
           onSelect={onSelect}
           onEdit={(c) => {
-            resetScroll();
             setDraft({ ...c });
           }}
           onReorder={(ids) =>
@@ -210,7 +216,6 @@ export function CategoryManager({
       </View>
       {floatingAdd && (
         <FloatingAddButton
-          visible={addButtonVisible}
           label="Thêm danh mục"
           hint="Mở biểu mẫu thêm danh mục"
           disabled={busy}

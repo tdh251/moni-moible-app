@@ -48,6 +48,11 @@ import {
 import { csvCell, transactionsCsv } from '../src/services/export/csv.ts';
 import { migration1 } from '../src/database/migrations.ts';
 import {
+  createTransactionListIndex,
+  groupTransactionsByDay,
+  recentTransactionSections,
+} from '../src/services/transaction-list.ts';
+import {
   calculateReceipt,
   parseAdjustments,
   parsePercent,
@@ -124,6 +129,122 @@ async function fixture(t, amount = 1000) {
   ]);
   return f;
 }
+test('recent transactions use three local calendar days and include every transaction in those days', () => {
+  const now = new Date(2026, 10, 15, 15, 30);
+  const today = Array.from({ length: 9 }, (_, index) =>
+    draft('expense', {
+      occurred_at: new Date(2026, 10, 15, 8, index).toISOString(),
+    }),
+  );
+  const yesterday = draft('income', {
+    occurred_at: new Date(2026, 10, 14, 23, 59, 59, 999).toISOString(),
+  });
+  const first = draft('transfer', {
+    occurred_at: new Date(2026, 10, 13, 0, 0, 0, 0).toISOString(),
+  });
+  const tooOld = draft('income', {
+    occurred_at: new Date(2026, 10, 12, 23, 59, 59, 999).toISOString(),
+  });
+  const future = draft('expense', {
+    occurred_at: new Date(2026, 10, 16, 0, 0, 0, 0).toISOString(),
+  });
+  const rows = Object.freeze([first, ...today, future, yesterday, tooOld]);
+  const sections = recentTransactionSections(rows, now);
+  assert.equal(sections.length, 3);
+  assert.equal(sections[0].data.length, 9);
+  assert.match(sections[0].title, /^Hôm nay/);
+  assert.match(sections[1].title, /^Hôm qua/);
+  assert.deepEqual(
+    sections[0].data.map((row) => row.id),
+    [...today].reverse().map((row) => row.id),
+  );
+  assert.deepEqual(sections[1].data, [yesterday]);
+  assert.deepEqual(sections[2].data, [first]);
+  assert.equal(rows[0], first);
+  assert.equal(rows[1], today[0]);
+  assert.equal(rows.length, 13);
+  const nextDay = recentTransactionSections(rows, new Date(2026, 10, 16, 0, 1));
+  assert.deepEqual(nextDay[0].data, [future]);
+  assert.deepEqual(nextDay[2].data, [yesterday]);
+  assert.ok(nextDay.every((section) => !section.data.includes(first)));
+});
+
+test('recent transaction window handles month boundaries and days without transactions', () => {
+  const now = new Date(2026, 2, 1, 12);
+  const inWindow = draft('expense', {
+    occurred_at: new Date(2026, 1, 27, 0).toISOString(),
+  });
+  const tooOld = draft('expense', {
+    occurred_at: new Date(2026, 1, 26, 23, 59, 59, 999).toISOString(),
+  });
+  assert.deepEqual(
+    recentTransactionSections([tooOld, inWindow], now).map(
+      (section) => section.data,
+    ),
+    [[inWindow]],
+  );
+  assert.deepEqual(recentTransactionSections([tooOld], now), []);
+  assert.deepEqual(recentTransactionSections([], now), []);
+});
+
+test('transaction list index preserves names tags item counts and financial snapshot', async (t) => {
+  const { repo } = await fixture(t);
+  const receipt = await receiptWithItemTags(repo);
+  await repo.saveTransaction(receipt, false);
+  const snapshot = await repo.snapshot();
+  const before = structuredClone(snapshot);
+  const index = createTransactionListIndex(snapshot);
+  assert.equal(index.accountNames.get('cash'), 'Tiền mặt');
+  assert.equal(index.itemCounts.get(receipt.id), 2);
+  assert.equal(index.itemCounts.get('missing'), undefined);
+  assert.equal(index.tags.get('whole').name, 'Cả hóa đơn');
+  for (const category of snapshot.categories) {
+    assert.equal(index.categories.get(category.id), category);
+    assert.equal(
+      index.categoryNames.get(category.id),
+      categoryPath(snapshot.categories, category.id),
+    );
+  }
+  assert.deepEqual(snapshot, before);
+  await repo.saveTag({
+    ...snapshot.tags.find((tag) => tag.id === 'whole'),
+    name: 'Tên mới',
+  });
+  const updatedIndex = createTransactionListIndex(await repo.snapshot());
+  assert.equal(updatedIndex.tags.get('whole').name, 'Tên mới');
+  assert.equal(index.tags.get('whole').name, 'Cả hóa đơn');
+});
+
+test('transaction day grouping preserves local dates row identity and ordering for large histories', () => {
+  const first = draft('income', { occurred_at: '2026-11-15T10:00:00.000Z' });
+  const second = draft('expense', { occurred_at: '2026-11-14T10:00:00.000Z' });
+  const third = draft('expense', { occurred_at: first.occurred_at });
+  const rows = Object.freeze([first, second, third]);
+  const groups = groupTransactionsByDay(rows);
+  assert.deepEqual(
+    groups.map((group) => group.title),
+    [
+      new Date(first.occurred_at).toLocaleDateString('vi-VN'),
+      new Date(second.occurred_at).toLocaleDateString('vi-VN'),
+    ],
+  );
+  assert.deepEqual(
+    groups.map((group) => group.data.map((row) => row.id)),
+    [[first.id, third.id], [second.id]],
+  );
+  assert.equal(groups[0].data[0], first);
+  assert.equal(groups[0].data[1], third);
+  assert.deepEqual(rows, [first, second, third]);
+  const large = Object.freeze(
+    Array.from({ length: 10000 }, (_, i) => ({ ...first, id: `large-${i}` })),
+  );
+  const largeGroups = groupTransactionsByDay(large);
+  assert.equal(largeGroups.length, 1);
+  assert.equal(largeGroups[0].data.length, 10000);
+  assert.equal(largeGroups[0].data[9999], large[9999]);
+  assert.deepEqual(groupTransactionsByDay([]), []);
+});
+
 test('duplicating income expense and transfer creates persistent drafts without financial effects', async (t) => {
   const { repo } = await fixture(t);
   for (const type of ['income', 'expense', 'transfer']) {

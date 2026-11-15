@@ -10,6 +10,7 @@ import {
   AppCard,
   Choices,
   Field,
+  ScreenContainer,
   SecondaryButton,
   s,
 } from '../../components/ui';
@@ -26,6 +27,7 @@ import type { Loan } from '../../types/finance';
 import { LoanReminderFields } from './LoanReminderFields';
 import { requestLoanReminderPermission } from '../../services/loan-reminders/notifications';
 import { FormActions } from '../../components/ui/FormActions';
+import { MotionSection } from '../../components/ui/MotionSection';
 import { BalanceExclusionCheckbox } from '../transactions/BalanceExclusionCheckbox';
 
 export function LoanForm({
@@ -55,18 +57,26 @@ export function LoanForm({
     { id: string; name: string; amount: string }[]
   >([]);
   const [picker, setPicker] = useState<'date' | 'time' | 'due' | null>(null);
-  const lenderSuggestions = lenderFocused && lender.trim().length > 0
-    ? [...new Map(
-        [...(data.loans ?? [])]
-          .filter((item) => (item.direction ?? 'borrow') === direction)
-          .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
-          .map((item) => [item.lender.trim().toLocaleLowerCase('vi-VN'), item.lender.trim()]),
-      ).values()]
-        .filter((name) =>
-          name.toLocaleLowerCase('vi-VN').includes(lender.trim().toLocaleLowerCase('vi-VN')),
-        )
-        .slice(0, 5)
-    : [];
+  const lenderSuggestions =
+    lenderFocused && lender.trim().length > 0
+      ? [
+          ...new Map(
+            [...(data.loans ?? [])]
+              .filter((item) => (item.direction ?? 'borrow') === direction)
+              .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+              .map((item) => [
+                item.lender.trim().toLocaleLowerCase('vi-VN'),
+                item.lender.trim(),
+              ]),
+          ).values(),
+        ]
+          .filter((name) =>
+            name
+              .toLocaleLowerCase('vi-VN')
+              .includes(lender.trim().toLocaleLowerCase('vi-VN')),
+          )
+          .slice(0, 5)
+      : [];
   const remaining = loan ? loanOutstanding(loan, data.loanPayments ?? []) : 0;
   const fullRepayment =
     !!loan &&
@@ -157,7 +167,42 @@ export function LoanForm({
     }
   };
   return (
-    <>
+    <ScreenContainer
+      title={
+        loan
+          ? lending
+            ? 'Thu hồi tiền'
+            : 'Trả nợ'
+          : lending
+            ? 'Thêm cho vay'
+            : 'Thêm khoản vay'
+      }
+      subtitle={loan?.lender}
+      back
+      backDisabled={busy || saving}
+      footer={
+        <FormActions
+          busy={busy || saving}
+          showCancel={false}
+          saveLabel={
+            loan
+              ? lending
+                ? 'Xác nhận thu hồi'
+                : 'Xác nhận trả nợ'
+              : lending
+                ? 'Lưu khoản cho vay'
+                : 'Lưu khoản vay'
+          }
+          saveDisabled={
+            !account ||
+            (loan ? remaining <= 0 : !lender.trim()) ||
+            !amount.trim()
+          }
+          onCancel={() => router.back()}
+          onSave={() => void save()}
+        />
+      }
+    >
       {loan && (
         <AppCard>
           <Text style={s.text}>{loan.lender}</Text>
@@ -215,7 +260,8 @@ export function LoanForm({
                       justifyContent: 'center',
                       paddingHorizontal: 14,
                       backgroundColor: pressed ? colors.light : colors.card,
-                      borderBottomWidth: index < lenderSuggestions.length - 1 ? 1 : 0,
+                      borderBottomWidth:
+                        index < lenderSuggestions.length - 1 ? 1 : 0,
                       borderBottomColor: colors.border,
                       borderRadius:
                         index === lenderSuggestions.length - 1 ? 14 : 0,
@@ -253,7 +299,7 @@ export function LoanForm({
           )}
         </View>
         {fullRepayment && (
-          <>
+          <MotionSection style={{ gap: 12 }}>
             <AmountInput
               label={
                 lending
@@ -268,7 +314,7 @@ export function LoanForm({
                 ? 'Không bắt buộc. Phụ phí được cộng cùng tiền thu hồi vào tài khoản đã chọn.'
                 : 'Không bắt buộc. Phụ phí được trừ cùng tiền trả nợ từ tài khoản đã chọn.'}
             </Text>
-          </>
+          </MotionSection>
         )}
         {loan && repaymentTotal !== undefined && (
           <View style={{ gap: 6 }}>
@@ -341,7 +387,7 @@ export function LoanForm({
             ]}
           />
           {term === 'fixed' && (
-            <>
+            <MotionSection style={{ gap: 12 }}>
               <SecondaryButton
                 label={
                   dueDate
@@ -360,7 +406,7 @@ export function LoanForm({
                 onTimeChange={setPaymentTimeMinutes}
                 disabled={saving || busy}
               />
-            </>
+            </MotionSection>
           )}
           <Text style={s.heading}>
             {lending ? 'Lãi / phí cần thu' : 'Chi phí vay'}
@@ -462,16 +508,6 @@ export function LoanForm({
           onDismiss={() => setPicker(null)}
         />
       )}
-      <FormActions
-        busy={busy || saving}
-        saveDisabled={
-          !account ||
-          (loan ? remaining <= 0 : !lender.trim()) ||
-          !amount.trim()
-        }
-        onCancel={() => router.back()}
-        onSave={() => void save()}
-      />
-    </>
+    </ScreenContainer>
   );
 }

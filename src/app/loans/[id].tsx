@@ -6,13 +6,13 @@ import {
   ConfirmationDialog,
   EmptyState,
   ScreenContainer,
-  IconButton,
+  PrimaryButton,
   s,
 } from '../../components/ui';
 import { useFinance } from '../../hooks/finance';
 import { LoanReminderCard } from '../../features/loans/LoanReminderCard';
 import { LoanPaymentHistory } from '../../features/loans/LoanPaymentHistory';
-import { FloatingActionButton } from '../../components/ui/FloatingActionButton';
+import { ActionMenu } from '../../components/ui/ActionMenu';
 import { colors } from '../../theme';
 import {
   loanOutstanding,
@@ -57,16 +57,11 @@ export default function LoanDetail() {
     <ScreenContainer
       title={loan.lender}
       subtitle={lending ? 'Chi tiết cho vay' : 'Chi tiết khoản vay'}
-      floatingAction={
+      footer={
         remaining > 0 ? (
-          <FloatingActionButton
+          <PrimaryButton
             icon={lending ? 'arrow-down-outline' : 'arrow-up-outline'}
             label={lending ? 'Thu hồi tiền' : 'Trả nợ'}
-            hint={
-              lending
-                ? 'Ghi nhận lần thu hồi khoản cho vay'
-                : 'Ghi nhận lần trả nợ'
-            }
             disabled={busy}
             onPress={() =>
               router.push({ pathname: '/loans/repay/[id]', params: { id } })
@@ -75,12 +70,17 @@ export default function LoanDetail() {
         ) : undefined
       }
       rightAction={
-        <IconButton
-          label={lending ? 'Xóa khoản cho vay' : 'Xóa khoản vay'}
-          icon="trash-outline"
-          danger
+        <ActionMenu
+          label="Thao tác khoản vay"
           disabled={busy}
-          onPress={() => void remove()}
+          actions={[
+            {
+              label: lending ? 'Xóa khoản cho vay' : 'Xóa khoản vay',
+              icon: 'trash-outline',
+              danger: true,
+              onPress: () => void remove(),
+            },
+          ]}
         />
       }
       back

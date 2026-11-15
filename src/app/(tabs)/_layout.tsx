@@ -3,14 +3,23 @@ import { Icon } from '../../components/ui';
 import { colors } from '../../theme';
 import { useFinance } from '../../hooks/finance';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useReducedMotionPreference } from '../../hooks/motion';
+import { motion } from '../../theme/motion';
 export default function TabsLayout() {
   const { data } = useFinance();
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotionPreference();
   if (!data.onboarded) return <Redirect href="/onboarding" />;
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        freezeOnBlur: true,
+        animation: reducedMotion ? 'none' : 'fade',
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: motion.transition },
+        },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarActiveBackgroundColor: colors.light,

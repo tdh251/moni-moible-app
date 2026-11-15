@@ -10,7 +10,6 @@ import {
   s,
   Amount,
 } from '../../components/ui';
-import { useScrollAddButton } from '../../hooks/useScrollAddButton';
 import { useFinance } from '../../hooks/finance';
 import {
   loanBalances,
@@ -43,8 +42,11 @@ export default function Loans() {
       ),
     [data.loans, direction],
   );
-  const { addButtonVisible, handleScroll } = useScrollAddButton();
   const balances = useMemo(() => loanBalances(data), [data]);
+  const outstanding = useMemo(
+    () => totalLoanOutstanding(data, lending ? 'lend' : 'borrow'),
+    [data, lending],
+  );
   const groups = useMemo(() => {
     const byCounterparty = new Map<string, LoanGroup>();
     for (const loan of matchingLoans) {
@@ -91,7 +93,6 @@ export default function Loans() {
       scroll={false}
       floatingAction={
         <FloatingAddButton
-          visible={addButtonVisible}
           label={lending ? 'Thêm cho vay' : 'Thêm vay'}
           hint={lending ? 'Thêm khoản cho vay mới' : 'Thêm khoản vay mới'}
           disabled={busy}
@@ -105,8 +106,6 @@ export default function Loans() {
         data={groups}
         keyExtractor={(group) => group.key}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         contentContainerStyle={[s.listContent, { gap: 12 }]}
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
@@ -124,7 +123,7 @@ export default function Loans() {
                 {lending ? 'Tổng cần thu hồi' : 'Tổng còn nợ'}
               </Text>
               <Amount
-                value={totalLoanOutstanding(data, lending ? 'lend' : 'borrow')}
+                value={outstanding}
                 style={{ fontSize: 30, lineHeight: 42 }}
               />
             </AppCard>

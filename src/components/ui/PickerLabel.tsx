@@ -14,7 +14,7 @@ export function PickerLabel({
   disabled?: boolean;
 }) {
   return (
-    <View>
+    <View style={{ minHeight: 48, justifyContent: 'center' }}>
       <Text style={[s.fieldLabel, { paddingRight: onAdd ? 84 : 0 }]}>
         {label}
       </Text>
@@ -29,9 +29,11 @@ export function PickerLabel({
           style={({ pressed }) => ({
             position: 'absolute',
             right: 0,
-            bottom: 0,
+            top: 0,
+            minHeight: 48,
+            minWidth: 84,
             justifyContent: 'center',
-            paddingHorizontal: 4,
+            paddingHorizontal: 8,
             opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
           })}
         >

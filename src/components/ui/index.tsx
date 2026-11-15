@@ -1,13 +1,12 @@
 import { TagBadges } from '../../features/tags/TagBadges';
 import { transactionCategoryTags } from '../../services/categories/tags';
 import { categoryPath } from '../../services/categories/hierarchy';
-import React from 'react';
+import React, { memo } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,14 +22,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { colors, layout } from '../../theme';
 import { Dropdown } from './Dropdown';
+import { MotionPressable } from './MotionPressable';
+import type { TransactionListIndex } from '../../services/transaction-list';
 import { usePreferences } from '../../stores/preferences';
 import { formatVnd, typeNames } from '../../utils/format';
-import type {
-  Account,
-  Category,
-  Ledger,
-  Transaction,
-} from '../../types/finance';
+import type { Account, Category, Transaction } from '../../types/finance';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 export function Icon({
@@ -109,7 +105,11 @@ export const s = StyleSheet.create({
     color: colors.onPrimary,
     textAlign: 'center',
   },
-  secondary: { backgroundColor: colors.light },
+  secondary: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   danger: {
     backgroundColor: colors.dangerLight,
     borderWidth: 1,
@@ -177,19 +177,16 @@ export function IconButton({
   danger?: boolean;
 }) {
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        s.iconButton,
-        { opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
-      ]}
+      style={s.iconButton}
     >
       <Icon name={icon} color={danger ? colors.danger : colors.primary} />
-    </Pressable>
+    </MotionPressable>
   );
 }
 export function AppHeader({
@@ -199,6 +196,8 @@ export function AppHeader({
   back = false,
   onClose,
   closeDisabled = false,
+  onBack,
+  backDisabled = false,
 }: {
   rightAction?: React.ReactNode;
   title: string;
@@ -206,32 +205,30 @@ export function AppHeader({
   back?: boolean;
   onClose?: () => void;
   closeDisabled?: boolean;
+  onBack?: () => void;
+  backDisabled?: boolean;
 }) {
   return (
     <View style={{ gap: 6 }}>
-      {back && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Quay lại"
-          hitSlop={8}
-          style={({ pressed }) => ({
-            alignSelf: 'flex-start',
-            minHeight: layout.touchTarget,
-            justifyContent: 'center',
-            opacity: pressed ? 0.7 : 1,
-          })}
-          onPress={() =>
-            router.canGoBack() ? router.back() : router.replace('/')
-          }
-        >
-          <View style={s.row}>
-            <Icon name="arrow-back-outline" />
-            <Text style={s.text}>Quay lại</Text>
-          </View>
-        </Pressable>
-      )}
       <View style={s.between}>
-        <Text accessibilityRole="header" style={[s.title, { flex: 1 }]}>
+        {back && (
+          <IconButton
+            label="Quay lại"
+            icon="arrow-back-outline"
+            disabled={backDisabled}
+            onPress={() => {
+              Keyboard.dismiss();
+              if (onBack) onBack();
+              else if (router.canGoBack()) router.back();
+              else router.replace('/');
+            }}
+          />
+        )}
+        <Text
+          accessibilityRole="header"
+          numberOfLines={2}
+          style={[s.title, { flex: 1, fontSize: back ? 22 : 26 }]}
+        >
           {title}
         </Text>
         {onClose && (
@@ -262,6 +259,9 @@ export function ScreenContainer({
   onClose,
   closeDisabled = false,
   tabScreen = false,
+  footer,
+  onBack,
+  backDisabled = false,
 }: {
   floatingAction?: React.ReactNode;
   rightAction?: React.ReactNode;
@@ -273,6 +273,9 @@ export function ScreenContainer({
   onClose?: () => void;
   closeDisabled?: boolean;
   tabScreen?: boolean;
+  footer?: React.ReactNode;
+  onBack?: () => void;
+  backDisabled?: boolean;
 }) {
   return (
     <SafeAreaView
@@ -283,10 +286,28 @@ export function ScreenContainer({
           : ['top', 'left', 'right', 'bottom']
       }
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <View
+          style={{
+            paddingHorizontal: layout.screenPadding,
+            paddingTop: 12,
+            paddingBottom: layout.sectionGap,
+            width: '100%',
+            maxWidth: layout.contentWidth,
+            alignSelf: 'center',
+          }}
+        >
+          <AppHeader
+            rightAction={rightAction}
+            title={title}
+            subtitle={subtitle}
+            back={back}
+            onBack={onBack}
+            backDisabled={backDisabled}
+            onClose={onClose}
+            closeDisabled={closeDisabled}
+          />
+        </View>
         {scroll ? (
           <ScrollView
             keyboardShouldPersistTaps="handled"
@@ -294,30 +315,38 @@ export function ScreenContainer({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[
               s.content,
+              { paddingTop: 0 },
               floatingAction ? s.listContent : undefined,
             ]}
           >
-            <AppHeader
-              rightAction={rightAction}
-              title={title}
-              subtitle={subtitle}
-              back={back}
-              onClose={onClose}
-              closeDisabled={closeDisabled}
-            />
             {children}
           </ScrollView>
         ) : (
-          <View style={[s.content, { flex: 1, paddingBottom: 0 }]}>
-            <AppHeader
-              rightAction={rightAction}
-              title={title}
-              subtitle={subtitle}
-              back={back}
-              onClose={onClose}
-              closeDisabled={closeDisabled}
-            />
+          <View
+            style={[s.content, { flex: 1, paddingTop: 0, paddingBottom: 0 }]}
+          >
             {children}
+          </View>
+        )}
+        {footer && (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              backgroundColor: colors.card,
+            }}
+          >
+            <View
+              style={{
+                paddingHorizontal: layout.screenPadding,
+                paddingVertical: 12,
+                width: '100%',
+                maxWidth: layout.contentWidth,
+                alignSelf: 'center',
+              }}
+            >
+              {footer}
+            </View>
           </View>
         )}
         {floatingAction && (
@@ -355,6 +384,45 @@ interface ButtonProps {
   icon?: string;
   danger?: boolean;
 }
+export function TextButton({ label, onPress, disabled, danger }: ButtonProps) {
+  return (
+    <MotionPressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={{
+        minHeight: layout.touchTarget,
+        paddingHorizontal: 8,
+        justifyContent: 'center',
+      }}
+    >
+      <Text style={[s.textActionLabel, danger && { color: colors.danger }]}>
+        {label}
+      </Text>
+    </MotionPressable>
+  );
+}
+
+export function NavigationRow({ label, icon, onPress, disabled }: ButtonProps) {
+  return (
+    <MotionPressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        s.row,
+        { minHeight: 64, paddingHorizontal: 20, paddingVertical: 12 },
+      ]}
+    >
+      {icon && <Icon name={icon} />}
+      <Text style={[s.text, { flex: 1, fontWeight: '600' }]}>{label}</Text>
+      <Icon name="chevron-forward-outline" size={18} color={colors.muted} />
+    </MotionPressable>
+  );
+}
 export function PrimaryButton({
   label,
   onPress,
@@ -363,16 +431,12 @@ export function PrimaryButton({
   danger,
 }: ButtonProps) {
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        s.button,
-        danger && s.danger,
-        { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
-      ]}
+      style={[s.button, danger && s.danger]}
     >
       {icon && (
         <Icon name={icon} color={danger ? colors.danger : colors.onPrimary} />
@@ -380,7 +444,7 @@ export function PrimaryButton({
       <Text style={[s.buttonText, danger && { color: colors.danger }]}>
         {label}
       </Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 export function SecondaryButton({
@@ -391,17 +455,12 @@ export function SecondaryButton({
   danger,
 }: ButtonProps) {
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        s.button,
-        s.secondary,
-        danger && s.danger,
-        { opacity: disabled ? 0.45 : pressed ? 0.7 : 1 },
-      ]}
+      style={[s.button, s.secondary, danger && s.danger]}
     >
       {icon && (
         <Icon name={icon} color={danger ? colors.danger : colors.primary} />
@@ -414,7 +473,7 @@ export function SecondaryButton({
       >
         {label}
       </Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
@@ -499,7 +558,7 @@ export function Choices<T extends string>({
   return (
     <View style={s.wrap}>
       {options.map((o) => (
-        <Pressable
+        <MotionPressable
           key={o.value}
           accessibilityRole="button"
           accessibilityState={{ selected: o.value === value }}
@@ -518,7 +577,7 @@ export function Choices<T extends string>({
               {o.label}
             </Text>
           </View>
-        </Pressable>
+        </MotionPressable>
       ))}
     </View>
   );
@@ -663,12 +722,12 @@ export function ConfirmationDialog(
     ),
   );
 }
-export function TransactionRow({
+export const TransactionRow = memo(function TransactionRow({
   transaction: t,
-  ledger,
+  index,
 }: {
   transaction: Transaction;
-  ledger: Ledger;
+  index: TransactionListIndex;
 }) {
   const color =
     t.type === 'expense'
@@ -677,10 +736,11 @@ export function TransactionRow({
         ? colors.income
         : colors.muted;
   const tags = transactionCategoryTags(t);
-  const category = ledger.categories.find((c) => c.id === t.category_id);
-  const items = ledger.items.filter((i) => i.transaction_id === t.id);
-  const name = (id: string | null) =>
-    ledger.accounts.find((a) => a.id === id)?.name ?? '';
+  const category = index.categories.get(t.category_id ?? '');
+  const itemCount = index.itemCounts.get(t.id) ?? 0;
+  const categoryName = (id: string | null) =>
+    index.categoryNames.get(id ?? '') ?? '';
+  const name = (id: string | null) => index.accountNames.get(id ?? '') ?? '';
   return (
     <Pressable
       accessibilityRole="button"
@@ -722,9 +782,9 @@ export function TransactionRow({
           <Text style={s.muted} numberOfLines={2}>
             {t.type === 'transfer'
               ? `${name(t.source_account_id)} → ${name(t.destination_account_id)}`
-              : `${name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map((id) => categoryPath(ledger.categories, id)).join(' · ') : items.length ? `${items.length} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryPath(ledger.categories, category?.id ?? null)}`}
+              : `${name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map(categoryName).join(' · ') : itemCount ? `${itemCount} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryName(category?.id ?? null)}`}
           </Text>
-          <TagBadges transaction={t} tags={ledger.tags ?? []} />
+          <TagBadges transaction={t} tags={index.tags} />
         </View>
         <View style={{ alignItems: 'flex-end', maxWidth: '46%' }}>
           <Amount
@@ -748,4 +808,4 @@ export function TransactionRow({
       </View>
     </Pressable>
   );
-}
+});

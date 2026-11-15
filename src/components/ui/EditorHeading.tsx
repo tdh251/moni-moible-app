@@ -1,5 +1,6 @@
 import { Text, View } from 'react-native';
-import { IconButton, s } from './index';
+import { s } from './index';
+import { ActionMenu } from './ActionMenu';
 
 export function EditorHeading({
   title,
@@ -21,25 +22,35 @@ export function EditorHeading({
   return (
     <View style={s.between}>
       <Text style={[s.heading, { flex: 1 }]}>{title}</Text>
-      <View style={{ flexDirection: 'row', gap: 4 }}>
-        {onArchive && (
-          <IconButton
-            label={archiveLabel}
-            icon={archived ? 'arrow-undo-outline' : 'archive-outline'}
-            disabled={disabled}
-            onPress={onArchive}
-          />
-        )}
-        {onDelete && (
-          <IconButton
-            label={deleteLabel}
-            icon="trash-outline"
-            danger
-            disabled={disabled}
-            onPress={onDelete}
-          />
-        )}
-      </View>
+      {(onArchive || onDelete) && (
+        <ActionMenu
+          label="Thao tác"
+          disabled={disabled}
+          actions={[
+            ...(onArchive
+              ? [
+                  {
+                    label: archiveLabel,
+                    icon: archived
+                      ? ('arrow-undo-outline' as const)
+                      : ('archive-outline' as const),
+                    onPress: onArchive,
+                  },
+                ]
+              : []),
+            ...(onDelete
+              ? [
+                  {
+                    label: deleteLabel,
+                    icon: 'trash-outline' as const,
+                    danger: true,
+                    onPress: onDelete,
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
     </View>
   );
 }

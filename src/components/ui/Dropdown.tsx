@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   Pressable,
-  ScrollView,
+  FlatList,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '../../theme';
+import { useReducedMotionPreference } from '../../hooks/motion';
+import { MotionPressable } from './MotionPressable';
 
 interface Option {
   value: string;
@@ -53,9 +55,18 @@ export function Dropdown(props: DropdownProps) {
   const { label, placeholder, options, value, searchable = false } = props;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const query = searchable ? normalizeSearch(search) : '';
+  const reducedMotion = useReducedMotionPreference();
+  const deferredSearch = useDeferredValue(search);
+  const query = searchable ? normalizeSearch(deferredSearch) : '';
+  const searchOptions = useMemo(
+    () =>
+      options.map((option) => ({ option, key: normalizeSearch(option.label) })),
+    [options],
+  );
   const filteredOptions = query
-    ? options.filter((option) => normalizeSearch(option.label).includes(query))
+    ? searchOptions
+        .filter((row) => row.key.includes(query))
+        .map((row) => row.option)
     : options;
   const searchLabel = 'Tìm ' + label.toLocaleLowerCase('vi-VN');
   const close = () => {
@@ -63,9 +74,8 @@ export function Dropdown(props: DropdownProps) {
     setOpen(false);
   };
   const selectedIds = Array.isArray(value) ? value : [value];
-  const selected = options.filter((option) =>
-    selectedIds.includes(option.value),
-  );
+  const selectedSet = new Set(selectedIds);
+  const selected = options.filter((option) => selectedSet.has(option.value));
   const selectedLabel = selected.length
     ? selected
         .slice(0, 2)
@@ -75,7 +85,7 @@ export function Dropdown(props: DropdownProps) {
   const disabled = props.disabled || !options.length;
   return (
     <>
-      <Pressable
+      <MotionPressable
         accessibilityRole="combobox"
         accessibilityLabel={label + ': ' + selectedLabel}
         accessibilityState={{ expanded: open, disabled }}
@@ -85,10 +95,7 @@ export function Dropdown(props: DropdownProps) {
           setSearch('');
           setOpen(true);
         }}
-        style={({ pressed }) => [
-          styles.trigger,
-          { opacity: disabled ? 0.5 : pressed ? 0.75 : 1 },
-        ]}
+        style={styles.trigger}
       >
         <OptionIcon name={selected[0]?.icon} />
         <Text
@@ -101,11 +108,11 @@ export function Dropdown(props: DropdownProps) {
           {selectedLabel}
         </Text>
         <Ionicons name="chevron-down-outline" size={18} color={colors.muted} />
-      </Pressable>
+      </MotionPressable>
       <Modal
         visible={open}
         transparent
-        animationType="fade"
+        animationType={reducedMotion ? 'none' : 'fade'}
         onRequestClose={close}
       >
         <KeyboardAvoidingView
@@ -211,17 +218,23 @@ export function Dropdown(props: DropdownProps) {
                   </Pressable>
                 </View>
               )}
-              <ScrollView
+              <FlatList
+                data={filteredOptions}
+                keyExtractor={(option) => option.value}
+                extraData={value}
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
+                style={{ flexGrow: 0, flexShrink: 1 }}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ gap: 6 }}
-              >
-                {filteredOptions.length === 0 && (
+                ListEmptyComponent={
                   <Text style={[styles.text, styles.empty]}>
                     Không tìm thấy kết quả phù hợp.
                   </Text>
-                )}
-                {filteredOptions.map((option) => {
-                  const checked = selectedIds.includes(option.value);
+                }
+                renderItem={({ item: option }) => {
+                  const checked = selectedSet.has(option.value);
                   return (
                     <Pressable
                       key={option.value}
@@ -271,8 +284,8 @@ export function Dropdown(props: DropdownProps) {
                       )}
                     </Pressable>
                   );
-                })}
-              </ScrollView>
+                }}
+              />
               {props.multiple && (
                 <Pressable
                   accessibilityRole="button"

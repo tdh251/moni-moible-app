@@ -8,6 +8,7 @@ import {
   ConfirmationDialog,
   Field,
   Icon,
+  NavigationRow,
   PrimaryButton,
   ScreenContainer,
   SecondaryButton,
@@ -111,22 +112,28 @@ export default function Settings() {
           </View>
         </View>
       </AppCard>
-      <PrimaryButton
-        label="Tài khoản"
-        icon="card-outline"
-        onPress={() => router.push('/accounts')}
-      />
-      <SecondaryButton
-        label="Danh mục"
-        icon="grid-outline"
-        onPress={() => router.push('/categories')}
-      />
-      <SecondaryButton
-        label="Tags"
-        icon="pricetag-outline"
-        disabled={disabled}
-        onPress={() => router.push('/tags')}
-      />
+      <AppCard style={{ padding: 0, gap: 0 }}>
+        <NavigationRow
+          label="Tài khoản"
+          icon="card-outline"
+          disabled={disabled}
+          onPress={() => router.push('/accounts')}
+        />
+        <View style={s.divider} />
+        <NavigationRow
+          label="Danh mục"
+          icon="grid-outline"
+          disabled={disabled}
+          onPress={() => router.push('/categories')}
+        />
+        <View style={s.divider} />
+        <NavigationRow
+          label="Tags"
+          icon="pricetag-outline"
+          disabled={disabled}
+          onPress={() => router.push('/tags')}
+        />
+      </AppCard>
       <Text style={s.heading}>Hiển thị</Text>
       <AppCard>
         <View style={s.between}>
