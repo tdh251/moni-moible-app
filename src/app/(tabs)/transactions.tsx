@@ -1,6 +1,7 @@
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { TransactionDraftList } from '../../features/transactions/TransactionDraftList';
+import { ThirdPartyHistory } from '../../features/third-party/ThirdPartyHistory';
 import { layout } from '../../theme';
 import { TransactionFiltersModal } from '../../features/transactions/TransactionFiltersModal';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -8,7 +9,7 @@ import { Keyboard, SectionList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import {
   EmptyState,
-  Field,
+  SearchField,
   ScreenContainer,
   SecondaryButton,
   TransactionRow,
@@ -16,7 +17,7 @@ import {
 } from '../../components/ui';
 import { useFinance } from '../../hooks/finance';
 import { PeriodFilter } from '../../components/PeriodFilter';
-import { usePreferences } from '../../stores/preferences';
+import { initialFilters, usePreferences } from '../../stores/preferences';
 import { filterTransactions } from '../../services/accounting/ledger';
 import {
   createTransactionListIndex,
@@ -28,7 +29,10 @@ export default function History() {
   const deferredFilters = useDeferredValue(filters);
   const set = usePreferences((v) => v.setFilters);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [view, setView] = useState<'posted' | 'drafts'>('posted');
+  const [view, setView] = useState<'posted' | 'drafts' | 'thirdParty'>(
+    'posted',
+  );
+  const [thirdPartyFilters, setThirdPartyFilters] = useState(initialFilters);
   const account =
     deferredFilters.account || deferredFilters.accounts?.[0] || '';
   const transactionIndex = useMemo(
@@ -48,14 +52,19 @@ export default function History() {
     <ScreenContainer
       tabScreen
       title="Giao dịch"
-      subtitle="Nhìn lại dòng tiền của bạn."
       scroll={false}
       floatingAction={
         <FloatingAddButton
-          label="Thêm giao dịch"
+          label={
+            view === 'thirdParty' ? 'Tạo khoản thu chi hộ' : 'Thêm giao dịch'
+          }
           hint="Mở màn hình thêm giao dịch mới"
           disabled={busy}
-          onPress={() => router.push('/transaction/new')}
+          onPress={() =>
+            router.push(
+              view === 'thirdParty' ? '/third-party/new' : '/transaction/new',
+            )
+          }
         />
       }
     >
@@ -63,6 +72,7 @@ export default function History() {
         value={view}
         options={[
           { value: 'posted', label: 'Đã ghi' },
+          { value: 'thirdParty', label: 'Thu chi hộ' },
           {
             value: 'drafts',
             label: `Bản nháp (${data.transactionDrafts?.length ?? 0})`,
@@ -70,7 +80,14 @@ export default function History() {
         ]}
         onChange={setView}
       />
-      {view === 'drafts' ? (
+      {view === 'thirdParty' ? (
+        <ThirdPartyHistory
+          filters={thirdPartyFilters}
+          onChange={(patch) =>
+            setThirdPartyFilters((old) => ({ ...old, ...patch }))
+          }
+        />
+      ) : view === 'drafts' ? (
         <>
           <Text style={s.muted}>Bản nháp chưa tính vào số dư và thống kê.</Text>
           <TransactionDraftList bottomPadding={layout.floatingContentPadding} />
@@ -88,8 +105,8 @@ export default function History() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
-            <View style={{ gap: 14, paddingBottom: 20 }}>
-              <Field
+            <View style={{ gap: 8, paddingBottom: 12 }}>
+              <SearchField
                 label="Tìm giao dịch"
                 value={filters.search}
                 onChangeText={(search) => set('historyFilters', { search })}

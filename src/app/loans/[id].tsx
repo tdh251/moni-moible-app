@@ -1,7 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  Amount,
   AppCard,
   ConfirmationDialog,
   EmptyState,
@@ -14,6 +13,12 @@ import { LoanReminderCard } from '../../features/loans/LoanReminderCard';
 import { LoanPaymentHistory } from '../../features/loans/LoanPaymentHistory';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { colors } from '../../theme';
+import {
+  HeroCard,
+  MoneyRow,
+  ProgressBar,
+  StatusBadge,
+} from '../../components/ui/primitives';
 import {
   loanOutstanding,
   parseLoanCosts,
@@ -55,8 +60,7 @@ export default function LoanDetail() {
   };
   return (
     <ScreenContainer
-      title={loan.lender}
-      subtitle={lending ? 'Chi tiết cho vay' : 'Chi tiết khoản vay'}
+      title={lending ? 'Chi tiết cho vay' : 'Chi tiết khoản vay'}
       footer={
         remaining > 0 ? (
           <PrimaryButton
@@ -85,94 +89,78 @@ export default function LoanDetail() {
       }
       back
     >
-      <AppCard style={{ backgroundColor: colors.balance }}>
-        <View style={[s.between, { flexWrap: 'wrap' }]}>
-          <Text style={[s.heading, { flexShrink: 1, color: colors.card }]}>
-            {lending ? 'Cần thu hồi' : 'Cần thanh toán'}
-          </Text>
-          <View
-            style={{
-              alignSelf: 'flex-end',
-              borderRadius: 999,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              backgroundColor:
-                remaining > 0 ? colors.expenseLight : colors.light,
-            }}
-          >
-            <Text
-              accessibilityLabel={`Trạng thái: ${remaining > 0 ? (lending ? 'Cần thu hồi' : 'Còn nợ') : 'Đã tất toán'}`}
-              style={{
-                color: remaining > 0 ? colors.expense : colors.primary,
-                fontSize: 13,
-                fontWeight: '600',
-              }}
-            >
-              {remaining > 0
+      <HeroCard
+        label={lending ? 'Cần thu hồi' : 'Cần thanh toán'}
+        value={remaining}
+        subtitle={loan.lender}
+        rightAction={
+          <StatusBadge
+            label={
+              remaining > 0
                 ? lending
                   ? 'Cần thu hồi'
                   : 'Còn nợ'
-                : 'Đã tất toán'}
-            </Text>
-          </View>
-        </View>
-        <Amount
-          value={remaining}
-          style={{ fontSize: 30, lineHeight: 42, color: colors.card }}
-        />
-        <View style={[s.divider, { backgroundColor: '#FFFFFF30' }]} />
-        {monthly && (
-          <>
-            <View style={s.between}>
-              <Text style={[s.muted, { flex: 1, color: colors.light }]}>
-                {lending ? 'Trung bình cần thu mỗi tháng' : 'Cần trả mỗi tháng'}
-              </Text>
-              <Amount value={monthly.amount} style={{ color: colors.card }} />
-            </View>
-            {lending && (
-              <Text style={[s.muted, { color: colors.light }]}>
-                Tổng khoản vay chia đều cho {monthly.months} tháng, làm tròn lên
-                theo VND. Phần tháng lẻ tính là một tháng.
-              </Text>
-            )}
-          </>
-        )}
-        <View style={s.between}>
-          <Text style={[s.muted, { color: colors.light }]}>
-            {lending ? 'Đã thu hồi' : 'Đã trả'}
-          </Text>
-          <Amount
-            value={loanTotalAmount(loan) - remaining}
-            style={{ color: colors.card }}
+                : 'Đã tất toán'
+            }
+            tone={remaining > 0 ? 'warning' : 'positive'}
           />
-        </View>
-      </AppCard>
+        }
+      >
+        <ProgressBar
+          value={(loanTotalAmount(loan) - remaining) / loanTotalAmount(loan)}
+          label={lending ? 'Tỷ lệ đã thu hồi' : 'Tỷ lệ đã trả'}
+          light
+        />
+        {monthly && (
+          <MoneyRow
+            label={lending ? 'Trung bình mỗi tháng' : 'Cần trả mỗi tháng'}
+            value={monthly.amount}
+            tone={colors.onDark}
+            labelTone={colors.onDarkMuted}
+          />
+        )}
+        {monthly && lending && (
+          <Text style={[s.muted, { color: colors.onDarkMuted }]}>
+            Chia đều trong {monthly.months} tháng, làm tròn lên theo VND; phần
+            tháng lẻ tính một tháng.
+          </Text>
+        )}
+        <MoneyRow
+          label={lending ? 'Đã thu hồi' : 'Đã trả'}
+          value={loanTotalAmount(loan) - remaining}
+          tone={colors.onDark}
+          labelTone={colors.onDarkMuted}
+        />
+      </HeroCard>
       <AppCard>
         <Text style={s.heading}>Chi tiết tiền vay</Text>
-        <View style={s.between}>
-          <Text style={s.muted}>Tiền gốc</Text>
-          <Amount value={loan.amount} />
-        </View>
-        <View style={s.between}>
-          <Text style={s.muted}>
-            {lending ? 'Lãi / phí cần thu' : 'Phí phát sinh'}
-          </Text>
-          <Amount value={totalLoanCosts(loan)} />
-        </View>
+        <MoneyRow label="Tiền gốc" value={loan.amount} />
+        <MoneyRow
+          label={lending ? 'Lãi / phí cần thu' : 'Phí phát sinh'}
+          value={totalLoanCosts(loan)}
+        />
         {costs.map((cost) => (
-          <View key={cost.id} style={[s.between, { paddingLeft: 12 }]}>
-            <Text style={[s.muted, { flex: 1 }]}>{cost.name}</Text>
-            <Amount
+          <View key={cost.id} style={{ paddingLeft: 12 }}>
+            <MoneyRow
+              label={cost.name}
               value={cost.amount}
-              style={[s.muted, { color: colors.expense, fontWeight: '500' }]}
+              tone={colors.expense}
             />
           </View>
         ))}
-        <View style={s.between}>
-          <Text style={s.muted}>
-            {lending ? 'Tổng cần thu hồi' : 'Tổng khoản vay'}
-          </Text>
-          <Amount value={loanTotalAmount(loan)} />
+        <View style={s.divider} />
+        <View
+          style={{
+            padding: 12,
+            borderRadius: 12,
+            backgroundColor: colors.brandMuted,
+          }}
+        >
+          <MoneyRow
+            label={lending ? 'Tổng cần thu hồi' : 'Tổng khoản vay'}
+            value={loanTotalAmount(loan)}
+            strong
+          />
         </View>
       </AppCard>
       <AppCard>

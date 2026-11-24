@@ -9,6 +9,7 @@ import {
   ConfirmationDialog,
   EmptyState,
   Field,
+  SearchField,
   Icon,
   PrimaryButton,
   SecondaryButton,
@@ -213,7 +214,7 @@ export function TagManager({
   return (
     <>
       <View style={{ flex: 1, gap: 12 }}>
-        <Field
+        <SearchField
           label="Tìm tag"
           placeholder="Nhập tên tag"
           value={search}

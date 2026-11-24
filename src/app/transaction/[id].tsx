@@ -12,6 +12,7 @@ import {
   AppCard,
   ConfirmationDialog,
   EmptyState,
+  Icon,
   ScreenContainer,
   TextButton,
   s,
@@ -19,6 +20,7 @@ import {
 import { useFinance } from '../../hooks/finance';
 import { typeNames } from '../../utils/format';
 import { colors } from '../../theme';
+import { StatusBadge } from '../../components/ui/primitives';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import {
   calculateReceipt,
@@ -104,13 +106,55 @@ export default function TransactionDetail() {
       }
     >
       <AppCard>
-        <Text style={s.muted}>{typeNames[t.type]}</Text>
-        <Text style={s.title}>{t.title}</Text>
+        <View
+          style={{
+            alignSelf: 'center',
+            padding: 14,
+            borderRadius: 16,
+            backgroundColor:
+              t.type === 'expense'
+                ? colors.expenseLight
+                : t.type === 'income'
+                  ? colors.incomeLight
+                  : colors.transferLight,
+          }}
+        >
+          <Icon
+            name={
+              t.type === 'transfer'
+                ? 'swap-horizontal-outline'
+                : (data.categories.find((c) => c.id === t.category_id)?.icon ??
+                  'receipt-outline')
+            }
+            size={28}
+            color={
+              t.type === 'expense'
+                ? colors.expense
+                : t.type === 'income'
+                  ? colors.income
+                  : colors.transfer
+            }
+          />
+        </View>
+        <View style={{ alignItems: 'center' }}>
+          <StatusBadge
+            label={typeNames[t.type]}
+            tone={
+              t.type === 'expense'
+                ? 'warning'
+                : t.type === 'income'
+                  ? 'positive'
+                  : 'neutral'
+            }
+          />
+        </View>
+        <Text style={[s.heading, { textAlign: 'center' }]}>{t.title}</Text>
         <Amount
           value={t.amount}
           style={{
-            fontSize: 30,
+            fontSize: 32,
             lineHeight: 42,
+            textAlign: 'center',
             color: t.type === 'expense' ? colors.expense : colors.primary,
           }}
         />
@@ -119,9 +163,10 @@ export default function TransactionDetail() {
             Không tính vào số dư · vẫn tính vào thống kê thu/chi
           </Text>
         )}
-        <Text style={s.text}>
+        <Text style={[s.muted, { textAlign: 'center' }]}>
           {new Date(t.occurred_at).toLocaleString('vi-VN')}
         </Text>
+        <View style={s.divider} />
         {t.source_account_id && (
           <Text style={s.text}>Từ: {name(t.source_account_id)}</Text>
         )}

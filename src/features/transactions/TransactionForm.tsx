@@ -31,6 +31,7 @@ import {
 } from '../../components/ui';
 import { useFinance, showError } from '../../hooks/finance';
 import { BalanceExclusionCheckbox } from './BalanceExclusionCheckbox';
+import { Disclosure } from '../../components/ui/primitives';
 import {
   accountBalances,
   ensure,
@@ -389,7 +390,7 @@ export function TransactionForm({
       {existing ? (
         <Text style={s.heading}>{typeNames[type]}</Text>
       ) : (
-        <Choices
+        <Choices<TransactionType>
           value={type}
           onChange={(next) => {
             setType(next);
@@ -409,28 +410,42 @@ export function TransactionForm({
           }))}
         />
       )}
-      <AppCard>
-        <Field
-          label={
-            type === 'transfer'
-              ? 'Mô tả (không bắt buộc)'
-              : 'Tiêu đề (không bắt buộc)'
-          }
-          value={title}
-          onChangeText={setTitle}
-          maxLength={200}
-          placeholder="Trống"
+      {type === 'expense' && (
+        <Choices
+          value={mode}
+          options={[
+            { value: 'categories', label: 'Ghi giao dịch' },
+            { value: 'items', label: 'Hóa đơn nhiều mục' },
+          ]}
+          onChange={(next) => void switchMode(next)}
         />
-        {type === 'expense' && (
-          <Choices
-            value={mode}
-            options={[
-              { value: 'categories', label: 'Ghi giao dịch' },
-              { value: 'items', label: 'Hóa đơn nhiều mục' },
-            ]}
-            onChange={(next) => void switchMode(next)}
+      )}
+      <AppCard>
+        <View style={{ gap: 0 }}>
+          {type === 'expense' && itemized ? (
+            <View style={s.fieldGroup}>
+              <Text style={s.fieldLabel}>Số tiền (VND)</Text>
+              {preview.summary ? (
+                <Amount value={preview.summary.total} />
+              ) : (
+                <Text style={s.muted}>Thêm các mục hóa đơn để tính tổng.</Text>
+              )}
+            </View>
+          ) : (
+            <AmountInput
+              prominent
+              value={amount}
+              onChangeText={setAmount}
+              showHint
+            />
+          )}
+          <BalanceExclusionCheckbox
+            value={excludeFromBalance}
+            onChange={setExcludeFromBalance}
+            disabled={busy}
+            embedded
           />
-        )}
+        </View>
       </AppCard>
       <AppCard>
         {type !== 'income' && (
@@ -461,30 +476,6 @@ export function TransactionForm({
             label="Tài khoản nhận"
           />
         )}
-        <View style={{ gap: 0 }}>
-          {type === 'expense' && itemized ? (
-            <View style={s.fieldGroup}>
-              <Text style={s.fieldLabel}>Số tiền (VND)</Text>
-              {preview.summary ? (
-                <Amount value={preview.summary.total} />
-              ) : (
-                <Text style={s.muted}>Thêm các mục hóa đơn để tính tổng.</Text>
-              )}
-            </View>
-          ) : (
-            <AmountInput
-              value={amount}
-              onChangeText={setAmount}
-              showHint={false}
-            />
-          )}
-          <BalanceExclusionCheckbox
-            value={excludeFromBalance}
-            onChange={setExcludeFromBalance}
-            disabled={busy}
-            embedded
-          />
-        </View>
       </AppCard>
       {type !== 'transfer' && !itemized && (
         <AppCard>
@@ -625,38 +616,57 @@ export function TransactionForm({
         </>
       )}
       <AppCard>
-        <TagPicker
-          label={type === 'expense' && itemized ? 'Tags hóa đơn' : undefined}
-          value={tagIds}
-          onChange={setTagIds}
-        />
-      </AppCard>
-      <AppCard>
-        <View style={s.selectGroup}>
-          <Text style={s.fieldLabel}>Ngày và giờ · múi giờ thiết bị</Text>
-          <SecondaryButton
-            label={date.toLocaleDateString('vi-VN')}
-            icon="calendar-outline"
-            disabled={busy}
-            onPress={() => setDateMode('date')}
-          />
-          <SecondaryButton
-            label={date.toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-            icon="time-outline"
-            disabled={busy}
-            onPress={() => setDateMode('time')}
-          />
-        </View>
-        <Field
-          label="Ghi chú (không bắt buộc)"
-          multiline
-          value={note}
-          onChangeText={setNote}
-          maxLength={4000}
-        />
+        <Disclosure
+          title="Thông tin bổ sung"
+          subtitle="Tiêu đề, ngày, tag và ghi chú"
+          defaultOpen={!!existing || !!savedDraft}
+        >
+          <View style={{ gap: 16 }}>
+            <Field
+              label={
+                type === 'transfer'
+                  ? 'Mô tả (không bắt buộc)'
+                  : 'Tiêu đề (không bắt buộc)'
+              }
+              value={title}
+              onChangeText={setTitle}
+              maxLength={200}
+              placeholder="Trống"
+            />
+            <TagPicker
+              label={
+                type === 'expense' && itemized ? 'Tags hóa đơn' : undefined
+              }
+              value={tagIds}
+              onChange={setTagIds}
+            />
+            <View style={s.selectGroup}>
+              <Text style={s.fieldLabel}>Ngày và giờ · múi giờ thiết bị</Text>
+              <SecondaryButton
+                label={date.toLocaleDateString('vi-VN')}
+                icon="calendar-outline"
+                disabled={busy}
+                onPress={() => setDateMode('date')}
+              />
+              <SecondaryButton
+                label={date.toLocaleTimeString('vi-VN', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                icon="time-outline"
+                disabled={busy}
+                onPress={() => setDateMode('time')}
+              />
+            </View>
+            <Field
+              label="Ghi chú (không bắt buộc)"
+              multiline
+              value={note}
+              onChangeText={setNote}
+              maxLength={4000}
+            />
+          </View>
+        </Disclosure>
       </AppCard>
       {dateMode && (
         <DateTimePicker

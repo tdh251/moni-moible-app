@@ -1,5 +1,6 @@
 import type { Ledger, Transaction } from '../types/finance.ts';
 import { createCategoryPathResolver } from './categories/hierarchy.ts';
+import { isThirdPartyPersonal } from './third-party.ts';
 
 export function createTransactionListIndex(ledger: Ledger) {
   const categoryPath = createCategoryPathResolver(ledger.categories);
@@ -10,6 +11,11 @@ export function createTransactionListIndex(ledger: Ledger) {
       (itemCounts.get(item.transaction_id) ?? 0) + 1,
     );
   return {
+    thirdPartyReportCases: new Map(
+      (ledger.thirdPartyEntries ?? [])
+        .filter((entry) => isThirdPartyPersonal(entry.kind))
+        .map((entry) => [`third-party-report:${entry.id}`, entry.case_id]),
+    ),
     accountNames: new Map(
       ledger.accounts.map((account) => [account.id, account.name]),
     ),

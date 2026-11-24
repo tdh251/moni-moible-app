@@ -50,10 +50,14 @@ npx eas-cli@latest build --platform android --profile production
 
 ## Chức năng
 
+- Thu chi hộ: Công nợ → Thu chi hộ, hoặc thẻ Thu chi hộ trên Tổng quan. Quản lý hồ sơ riêng với nhiều lần nhận trước, thanh toán hộ, trả lại, thu lại tiền ứng và nhà bán hoàn tiền. Quyết toán toàn phần/từng phần bằng tiền thực tế và phần giữ lại/tự chịu; phần thu chi cá nhân không làm đổi số dư lần hai. Có trạng thái công việc độc lập, hoàn tất/mở lại, lịch sử, tìm/lọc, backup v22 và CSV. Giữ nguyên các khoản mua hộ cũ, không tự chuyển đổi. [Thiết kế, hướng dẫn sử dụng và báo cáo kiểm thử](docs/THIRD-PARTY-TRANSACTIONS.md).
+
 - Onboarding: một ví Tiền mặt, tùy chọn nhiều ngân hàng, số dư ban đầu từ 0; lưu trạng thái thiết lập.
-- Bốn tab Tổng quan / Giao dịch / Thống kê / Cá nhân; giao diện Minimal Soft, VND, safe areas và bộ chọn ngày/giờ gốc.
+- Năm tab Tổng quan / Giao dịch / Công nợ / Thống kê / Cá nhân; giao diện Minimal Soft, VND, safe areas và bộ chọn ngày/giờ gốc.
 - Thêm/đổi tên ngân hàng, xem số dư và lịch sử riêng, lưu trữ/khôi phục ngân hàng có số dư 0. Không xóa tài khoản có lịch sử. Thay số dư ban đầu có luồng riêng và xác nhận.
 - Thu tiền, Chi tiền, Chuyển nội bộ; chi đơn giản hoặc hóa đơn nhiều mục, mỗi mục một danh mục phẳng. Chỉnh sửa/xóa và tính lại tác động tài chính.
+- Công nợ: Cần thu gồm cho vay và mua hộ; Cần trả gồm đi vay. Gom theo từng người, có tổng riêng hai chiều, lọc loại/trạng thái và tìm người/nội dung/ghi chú. Nút Thêm mở lựa chọn Cho vay / Mua hộ / Đi vay, dùng các luồng ghi và hoàn trả hiện có.
+- Mua hộ: mở Công nợ → Cần thu → Mua hộ, hoặc thẻ Tiền mua hộ trên Tổng quan. Ghi người được mua hộ, nội dung, số tiền, ví thanh toán và hạn hoàn tùy chọn. Theo dõi chưa thu hết / đã xong theo từng người; nhận tiền hoàn từng phần vào ví bất kỳ, sửa/xóa khoản mua hộ và xóa lần hoàn nhập nhầm. Tiền ứng giảm số dư, tiền hoàn tăng số dư; cả hai không tính vào thu chi cá nhân. Nhập riêng phần mua hộ, chưa tách một hóa đơn có cả phần cá nhân hay chuyển khoản chưa hoàn thành quà tặng.
 - Lịch sử nhóm ngày, tìm tiêu đề/ghi chú; lọc loại, tài khoản, danh mục và ngày/tháng/quý/năm. Bộ lọc tài khoản chứa cả hai phía của giao dịch chuyển.
 - Dashboard số dư thật, thu chi tháng được chọn, thao tác nhanh, giao dịch gần nhất. Thống kê có cùng kỳ/tài khoản cho tất cả tổng tiền và biểu đồ; thanh thu/chi, donut SVG, danh mục và phần trăm.
 - Danh mục thu/chi một cấp: thêm, chỉnh tên/icon/màu, lưu trữ/khôi phục; tham chiếu lịch sử được giữ nguyên.

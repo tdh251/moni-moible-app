@@ -1,4 +1,6 @@
 import { transactionTagIds } from '../tags.ts';
+import { purchaseCashFlows } from '../purchases.ts';
+import { isThirdPartyPersonal, thirdPartyEntryLabels } from '../third-party.ts';
 import {
   itemCategoryIds,
   transactionCategoryTags,
@@ -108,6 +110,24 @@ export function transactionsCsv(data: Ledger): string {
       ]);
   }
 
+  for (const flow of purchaseCashFlows(data))
+    rows.push([
+      flow.id,
+      flow.source_account_id ? 'Mua hộ' : 'Hoàn tiền mua hộ',
+      flow.title,
+      flow.amount,
+      account(flow.source_account_id),
+      account(flow.destination_account_id),
+      '',
+      flow.occurred_at,
+      flow.note,
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
+
   const transactionTags = new Map(
     data.transactions.map((t) => [
       t.id,
@@ -116,9 +136,44 @@ export function transactionsCsv(data: Ledger): string {
         .join(' | '),
     ]),
   );
+  const thirdPartyCases = new Map(
+    (data.thirdPartyCases ?? []).map((item) => [item.id, item]),
+  );
+  for (const entry of data.thirdPartyEntries ?? []) {
+    const item = thirdPartyCases.get(entry.case_id);
+    const personal = isThirdPartyPersonal(entry.kind);
+    const incoming = ['receive', 'reimbursement', 'payment_refund'].includes(
+      entry.kind,
+    );
+    const id = `third-party:${entry.id}`;
+    rows.push([
+      id,
+      `Thu chi hộ · ${thirdPartyEntryLabels[entry.kind]}`,
+      `${item?.title ?? ''} · ${item?.person ?? ''}`,
+      entry.amount,
+      !personal && !incoming ? account(entry.account_id) : '',
+      !personal && incoming ? account(entry.account_id) : '',
+      category(entry.category_id),
+      entry.occurred_at,
+      entry.note,
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    transactionTags.set(
+      id,
+      transactionTagIds(entry)
+        .map((tag) => tagNames.get(tag) ?? '')
+        .join(' | '),
+    );
+  }
   const excluded = new Map(
     data.transactions.map((t) => [t.id, t.exclude_from_balance === 1]),
   );
+  for (const entry of data.thirdPartyEntries ?? [])
+    excluded.set(`third-party:${entry.id}`, isThirdPartyPersonal(entry.kind));
   return (
     '\uFEFF' +
     rows

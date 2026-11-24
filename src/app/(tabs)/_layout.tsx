@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
 import { Icon } from '../../components/ui';
-import { colors } from '../../theme';
+import { colors, typography, radius } from '../../theme';
+import { Text, useWindowDimensions } from 'react-native';
 import { useFinance } from '../../hooks/finance';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useReducedMotionPreference } from '../../hooks/motion';
@@ -8,6 +9,7 @@ import { motion } from '../../theme/motion';
 export default function TabsLayout() {
   const { data } = useFinance();
   const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
   const reducedMotion = useReducedMotionPreference();
   if (!data.onboarded) return <Redirect href="/onboarding" />;
   return (
@@ -26,18 +28,28 @@ export default function TabsLayout() {
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: colors.card,
-          borderTopColor: colors.border,
-          height: 64 + insets.bottom,
+          borderTopWidth: 0,
+          borderTopLeftRadius: radius.sheet,
+          borderTopRightRadius: radius.sheet,
+          height:
+            (fontScale > 1.3 ? 44 + Math.ceil(fontScale * 32) : 60) +
+            insets.bottom,
           paddingTop: 6,
           paddingBottom: Math.max(insets.bottom, 6),
           elevation: 0,
         },
         tabBarItemStyle: {
-          borderRadius: 14,
+          borderRadius: radius.icon,
           marginHorizontal: 3,
           paddingVertical: 4,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: typography.navigation,
+        tabBarLabelPosition: 'below-icon',
+        tabBarLabel: ({ color, children }) => (
+          <Text style={[typography.navigation, { color, textAlign: 'center' }]}>
+            {children}
+          </Text>
+        ),
       }}
     >
       <Tabs.Screen
@@ -64,9 +76,12 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="loans"
         options={{
-          title: 'Khoản vay',
+          title: 'Công nợ',
           tabBarIcon: ({ color, focused }) => (
-            <Icon name={focused ? 'people' : 'people-outline'} color={color} />
+            <Icon
+              name={focused ? 'hand-left' : 'hand-left-outline'}
+              color={color}
+            />
           ),
         }}
       />

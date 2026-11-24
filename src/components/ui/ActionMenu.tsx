@@ -1,26 +1,15 @@
 import { useRef, useState } from 'react';
-import {
-  Keyboard,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Keyboard, Platform, ScrollView, Text } from 'react-native';
 import { Icon, IconButton, s, type IconName } from './index';
+import { BottomSheet } from './BottomSheet';
 import { MotionPressable } from './MotionPressable';
-import { colors, layout } from '../../theme';
-import { useReducedMotionPreference } from '../../hooks/motion';
-
+import { colors, radius, spacing } from '../../theme';
 interface Action {
   label: string;
   icon: IconName;
   danger?: boolean;
   onPress: () => void;
 }
-
 export function ActionMenu({
   label,
   actions,
@@ -32,7 +21,6 @@ export function ActionMenu({
 }) {
   const [open, setOpen] = useState(false);
   const pending = useRef<(() => void) | null>(null);
-  const reducedMotion = useReducedMotionPreference();
   const close = () => {
     pending.current = null;
     setOpen(false);
@@ -53,88 +41,57 @@ export function ActionMenu({
           setOpen(true);
         }}
       />
-      <Modal
+      <BottomSheet
         visible={open}
-        transparent
-        animationType={reducedMotion ? 'none' : 'fade'}
-        onRequestClose={close}
+        title={label}
+        onClose={close}
         onDismiss={runPending}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(25,56,44,0.35)' }}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Đóng menu thao tác"
-            style={StyleSheet.absoluteFill}
-            onPress={close}
-          />
-          <SafeAreaView
-            pointerEvents="box-none"
-            style={{ flex: 1, justifyContent: 'flex-end', padding: 20 }}
-          >
-            <View
-              accessibilityViewIsModal
-              style={{
-                backgroundColor: colors.card,
-                borderRadius: 22,
-                padding: 12,
-                width: '100%',
-                maxWidth: layout.contentWidth,
-                alignSelf: 'center',
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: spacing.sm }}
+        >
+          {actions.map((action) => (
+            <MotionPressable
+              key={action.label}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              disabled={disabled}
+              style={[
+                s.row,
+                {
+                  minHeight: 48,
+                  borderRadius: radius.icon,
+                  padding: spacing.compact,
+                },
+              ]}
+              onPress={() => {
+                pending.current = action.onPress;
+                setOpen(false);
+                if (Platform.OS !== 'ios') requestAnimationFrame(runPending);
               }}
             >
-              <View style={[s.between, { paddingLeft: 12 }]}>
-                <Text
-                  accessibilityRole="header"
-                  style={[s.heading, { flex: 1 }]}
-                >
-                  {label}
-                </Text>
-                <IconButton
-                  label="Đóng menu thao tác"
-                  icon="close-outline"
-                  onPress={close}
-                />
-              </View>
-              {actions.map((action) => (
-                <MotionPressable
-                  key={action.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                  disabled={disabled}
-                  style={[
-                    s.row,
-                    { minHeight: 56, borderRadius: 14, padding: 12 },
-                  ]}
-                  onPress={() => {
-                    pending.current = action.onPress;
-                    setOpen(false);
-                    // iOS must finish dismissing this modal before presenting
-                    // another modal or a native confirmation alert.
-                    if (Platform.OS !== 'ios')
-                      requestAnimationFrame(runPending);
-                  }}
-                >
-                  <Icon
-                    name={action.icon}
-                    color={action.danger ? colors.danger : colors.primary}
-                  />
-                  <Text
-                    style={[
-                      s.text,
-                      {
-                        flex: 1,
-                        color: action.danger ? colors.danger : colors.text,
-                      },
-                    ]}
-                  >
-                    {action.label}
-                  </Text>
-                </MotionPressable>
-              ))}
-            </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
+              <Icon
+                name={action.icon}
+                size={20}
+                color={action.danger ? colors.danger : colors.primary}
+              />
+              <Text
+                style={[
+                  s.text,
+                  {
+                    flex: 1,
+                    minWidth: 0,
+                    color: action.danger ? colors.danger : colors.text,
+                  },
+                ]}
+              >
+                {action.label}
+              </Text>
+            </MotionPressable>
+          ))}
+        </ScrollView>
+      </BottomSheet>
     </>
   );
 }

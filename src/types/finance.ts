@@ -92,6 +92,11 @@ export interface LoanPayment {
   created_at: string;
 }
 export interface Ledger {
+  thirdPartyCases?: import('./third-party').ThirdPartyCase[];
+  thirdPartyEntries?: import('./third-party').ThirdPartyEntry[];
+  thirdPartySettlements?: import('./third-party').ThirdPartySettlement[];
+  purchases?: Purchase[];
+  purchaseRefunds?: PurchaseRefund[];
   loans?: Loan[];
   loanPayments?: LoanPayment[];
   tags?: Tag[];
@@ -99,6 +104,27 @@ export interface Ledger {
   categories: Category[];
   transactions: Transaction[];
   items: TransactionItem[];
+}
+export interface Purchase {
+  id: string;
+  title: string;
+  person: string;
+  amount: number;
+  account_id: string;
+  note: string;
+  due_at: string | null;
+  occurred_at: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface PurchaseRefund {
+  id: string;
+  purchase_id: string;
+  amount: number;
+  account_id: string;
+  note: string;
+  occurred_at: string;
+  created_at: string;
 }
 export interface Snapshot extends Ledger {
   transactionDrafts?: import('./transaction-draft').SavedTransactionDraft[];

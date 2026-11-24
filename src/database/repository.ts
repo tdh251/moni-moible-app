@@ -6,6 +6,8 @@ import {
 import type {
   Loan,
   LoanPayment,
+  Purchase,
+  PurchaseRefund,
   Account,
   Category,
   CategoryType,
@@ -26,6 +28,16 @@ import {
   validateLedger,
 } from '../services/accounting/ledger.ts';
 import { validateBackup, type Backup } from '../services/backup/validation.ts';
+import type {
+  ThirdPartyCase,
+  ThirdPartyEntry,
+  ThirdPartyEntryInput,
+  ThirdPartySettlement,
+  ThirdPartySettlementRequest,
+  ThirdPartyStatus,
+} from '../types/third-party.ts';
+import * as thirdParty from './third-party.ts';
+import { readThirdPartySettlement } from '../services/third-party.ts';
 import {
   itemCategoryIds,
   transactionCategoryTags,
@@ -58,6 +70,8 @@ import {
   migration18,
   migration19,
   migration20,
+  migration21,
+  migration22,
   SCHEMA_VERSION,
 } from './migrations.ts';
 
@@ -96,9 +110,26 @@ export async function migrate(db: Connection): Promise<void> {
   if (row.user_version < 18) await db.execAsync(migration18);
   if (row.user_version < 19) await db.execAsync(migration19);
   if (row.user_version < 20) await db.execAsync(migration20);
+  if (row.user_version < 21) await db.execAsync(migration21);
+  if (row.user_version < 22) await db.execAsync(migration22);
 }
 export async function readSnapshot(db: Connection): Promise<Snapshot> {
   // Sequential reads stay on the same connection, including inside exclusive transactions.
+  const thirdPartyCases = await db.getAllAsync<ThirdPartyCase>(
+    'SELECT * FROM third_party_cases ORDER BY started_at DESC,id',
+  );
+  const thirdPartyEntries = await db.getAllAsync<ThirdPartyEntry>(
+    'SELECT * FROM third_party_entries ORDER BY occurred_at DESC,sequence DESC',
+  );
+  const thirdPartySettlements = await db.getAllAsync<ThirdPartySettlement>(
+    'SELECT * FROM third_party_settlements ORDER BY created_at DESC,id',
+  );
+  const purchases = await db.getAllAsync<Purchase>(
+    'SELECT * FROM purchases ORDER BY occurred_at DESC,created_at DESC,id DESC',
+  );
+  const purchaseRefunds = await db.getAllAsync<PurchaseRefund>(
+    'SELECT * FROM purchase_refunds ORDER BY occurred_at DESC,created_at DESC,id DESC',
+  );
   const loans = await db.getAllAsync<Loan>(
     'SELECT * FROM loans ORDER BY occurred_at DESC,created_at DESC,id DESC',
   );
@@ -138,6 +169,11 @@ export async function readSnapshot(db: Connection): Promise<Snapshot> {
     }),
   );
   return {
+    thirdPartyCases,
+    thirdPartyEntries,
+    thirdPartySettlements,
+    purchases,
+    purchaseRefunds,
     transactionDrafts,
     accounts,
     loans,
@@ -240,7 +276,34 @@ async function insertLoanPayment(db: Connection, p: LoanPayment) {
 }
 async function clear(db: Connection) {
   await db.execAsync(
-    'DELETE FROM transaction_drafts; DELETE FROM loan_payments; DELETE FROM loans; DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
+    'DELETE FROM third_party_entries WHERE related_entry_id IS NOT NULL; DELETE FROM third_party_entries; DELETE FROM third_party_settlements; DELETE FROM third_party_cases; DELETE FROM purchase_refunds; DELETE FROM purchases; DELETE FROM transaction_drafts; DELETE FROM loan_payments; DELETE FROM loans; DELETE FROM transaction_items; DELETE FROM transactions; DELETE FROM accounts; DELETE FROM categories; DELETE FROM tags; DELETE FROM settings;',
+  );
+}
+async function insertPurchase(db: Connection, p: Purchase) {
+  await db.runAsync(
+    'INSERT INTO purchases (id,title,person,amount,account_id,note,due_at,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    p.id,
+    p.title,
+    p.person,
+    p.amount,
+    p.account_id,
+    p.note,
+    p.due_at,
+    p.occurred_at,
+    p.created_at,
+    p.updated_at,
+  );
+}
+async function insertPurchaseRefund(db: Connection, p: PurchaseRefund) {
+  await db.runAsync(
+    'INSERT INTO purchase_refunds (id,purchase_id,amount,account_id,note,occurred_at,created_at) VALUES (?,?,?,?,?,?,?)',
+    p.id,
+    p.purchase_id,
+    p.amount,
+    p.account_id,
+    p.note,
+    p.occurred_at,
+    p.created_at,
   );
 }
 async function insertDraft(db: Connection, draft: SavedTransactionDraft) {
@@ -391,9 +454,16 @@ export class FinanceRepository {
         (data.tags ?? []).some((t) => t.id === id),
         'Tag không còn tồn tại.',
       );
-      const used = [...data.transactions, ...data.items].some((row) =>
-        transactionTagIds(row).includes(id),
-      );
+      const used =
+        [
+          ...data.transactions,
+          ...data.items,
+          ...(data.thirdPartyCases ?? []),
+          ...(data.thirdPartyEntries ?? []),
+        ].some((row) => transactionTagIds(row).includes(id)) ||
+        data.thirdPartySettlements?.some((record) =>
+          transactionTagIds(readThirdPartySettlement(record)).includes(id),
+        );
       await db.runAsync(
         used
           ? 'UPDATE tags SET is_archived=1 WHERE id=?'
@@ -468,7 +538,12 @@ export class FinanceRepository {
         data.transactions.some(
           (t) =>
             t.category_id === id || transactionCategoryTags(t).includes(id),
-        ) || data.items.some((i) => itemCategoryIds(i).includes(id));
+        ) ||
+        data.items.some((i) => itemCategoryIds(i).includes(id)) ||
+        data.thirdPartyEntries?.some((entry) => entry.category_id === id) ||
+        data.thirdPartySettlements?.some(
+          (record) => readThirdPartySettlement(record).category_id === id,
+        );
       await db.runAsync(
         used
           ? 'UPDATE categories SET is_archived=1 WHERE id=?'
@@ -566,6 +641,99 @@ export class FinanceRepository {
       );
       removeTransaction(data, id);
       await db.runAsync('DELETE FROM transactions WHERE id=?', id);
+    });
+  }
+  savePurchase(purchase: Purchase, editing = false) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      const old = data.purchases?.find((row) => row.id === purchase.id);
+      ensure(
+        editing === !!old,
+        'Khoản mua hộ đã thay đổi. Hãy mở lại màn hình.',
+      );
+      ensure(
+        data.accounts.some(
+          (a) =>
+            a.id === purchase.account_id &&
+            (!a.is_archived || old?.account_id === a.id),
+        ),
+        'Chọn tài khoản đang hoạt động để mua hộ.',
+      );
+      const saved = {
+        ...purchase,
+        title: purchase.title.trim(),
+        person: purchase.person.trim(),
+        created_at: old?.created_at ?? purchase.created_at,
+        updated_at: new Date().toISOString(),
+      };
+      validateLedger({
+        ...data,
+        purchases: [
+          ...(data.purchases ?? []).filter((row) => row.id !== saved.id),
+          saved,
+        ],
+      });
+      if (old)
+        await db.runAsync(
+          'UPDATE purchases SET title=?,person=?,amount=?,account_id=?,note=?,due_at=?,occurred_at=?,updated_at=? WHERE id=?',
+          saved.title,
+          saved.person,
+          saved.amount,
+          saved.account_id,
+          saved.note,
+          saved.due_at,
+          saved.occurred_at,
+          saved.updated_at,
+          saved.id,
+        );
+      else await insertPurchase(db, saved);
+    });
+  }
+  refundPurchase(refund: PurchaseRefund) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(data.onboarded, 'Vui lòng thiết lập tài khoản.');
+      ensure(
+        data.accounts.some((a) => a.id === refund.account_id && !a.is_archived),
+        'Chọn tài khoản đang hoạt động để nhận hoàn tiền.',
+      );
+      validateLedger({
+        ...data,
+        purchaseRefunds: [...(data.purchaseRefunds ?? []), refund],
+      });
+      await insertPurchaseRefund(db, refund);
+    });
+  }
+  deletePurchase(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        data.purchases?.some((row) => row.id === id),
+        'Khoản mua hộ không còn tồn tại.',
+      );
+      validateLedger({
+        ...data,
+        purchases: data.purchases?.filter((row) => row.id !== id),
+        purchaseRefunds: data.purchaseRefunds?.filter(
+          (row) => row.purchase_id !== id,
+        ),
+      });
+      await db.runAsync('DELETE FROM purchases WHERE id=?', id);
+    });
+  }
+  deletePurchaseRefund(id: string) {
+    return this.write(async (db) => {
+      const data = await readSnapshot(db);
+      ensure(
+        data.purchaseRefunds?.some((row) => row.id === id),
+        'Lần hoàn tiền không còn tồn tại.',
+      );
+      validateLedger({
+        ...data,
+        purchaseRefunds: data.purchaseRefunds?.filter((row) => row.id !== id),
+      });
+      await db.runAsync('DELETE FROM purchase_refunds WHERE id=?', id);
     });
   }
   addLoan(loan: Loan) {
@@ -674,7 +842,7 @@ export class FinanceRepository {
   backup(): Promise<Backup> {
     return this.write(async (db) => ({
       format: 'monomoney',
-      version: 20,
+      version: 22,
       exported_at: new Date().toISOString(),
       data: await readSnapshot(db),
     }));
@@ -693,7 +861,17 @@ export class FinanceRepository {
           tag.is_archived,
         );
       for (const a of backup.data.accounts) await insertAccount(db, a);
+      for (const p of backup.data.purchases ?? []) await insertPurchase(db, p);
+      for (const p of backup.data.purchaseRefunds ?? [])
+        await insertPurchaseRefund(db, p);
       for (const c of backup.data.categories) await insertCategory(db, c);
+      for (const item of backup.data.thirdPartyCases ?? [])
+        await thirdParty.insertThirdPartyCase(db, item);
+      for (const record of backup.data.thirdPartySettlements ?? [])
+        await thirdParty.insertThirdPartySettlement(db, record);
+      // References from merchant refunds are deferred until every entry is restored.
+      for (const entry of backup.data.thirdPartyEntries ?? [])
+        await thirdParty.insertThirdPartyEntry(db, entry);
       for (const t of backup.data.transactions) await insertTransaction(db, t);
       for (const i of backup.data.items) await insertItem(db, i);
       for (const loan of backup.data.loans ?? []) await insertLoan(db, loan);
@@ -712,6 +890,76 @@ export class FinanceRepository {
       await clear(db);
       for (const c of defaultCategories) await insertCategory(db, c);
     });
+  }
+  saveThirdPartyCase(value: ThirdPartyCase, editing = false) {
+    return this.write(async (db) =>
+      thirdParty.saveThirdPartyCase(db, await readSnapshot(db), value, editing),
+    );
+  }
+  saveThirdPartyEntry(
+    value: ThirdPartyEntryInput,
+    editing: boolean,
+    revision: number,
+  ) {
+    return this.write(async (db) =>
+      thirdParty.saveThirdPartyEntry(
+        db,
+        await readSnapshot(db),
+        value,
+        editing,
+        revision,
+      ),
+    );
+  }
+  setThirdPartyStatus(
+    id: string,
+    status: ThirdPartyStatus | 'reopen',
+    revision: number,
+  ) {
+    return this.write(async (db) =>
+      thirdParty.setThirdPartyStatus(
+        db,
+        await readSnapshot(db),
+        id,
+        status,
+        revision,
+      ),
+    );
+  }
+  deleteThirdPartyCase(id: string, revision: number) {
+    return this.write(async (db) =>
+      thirdParty.deleteThirdPartyCase(db, await readSnapshot(db), id, revision),
+    );
+  }
+  deleteThirdPartyEntry(id: string, revision: number) {
+    return this.write(async (db) =>
+      thirdParty.deleteThirdPartyEntry(
+        db,
+        await readSnapshot(db),
+        id,
+        revision,
+      ),
+    );
+  }
+  settleThirdPartyCase(request: ThirdPartySettlementRequest, revision: number) {
+    return this.write(async (db) =>
+      thirdParty.settleThirdPartyCase(
+        db,
+        await readSnapshot(db),
+        request,
+        revision,
+      ),
+    );
+  }
+  undoThirdPartySettlement(id: string, revision: number) {
+    return this.write(async (db) =>
+      thirdParty.undoThirdPartySettlement(
+        db,
+        await readSnapshot(db),
+        id,
+        revision,
+      ),
+    );
   }
 }
 export function makeAccount(
@@ -734,6 +982,11 @@ export function makeAccount(
 }
 export function emptyLedger(): Ledger {
   return {
+    thirdPartyCases: [],
+    thirdPartyEntries: [],
+    thirdPartySettlements: [],
+    purchases: [],
+    purchaseRefunds: [],
     accounts: [],
     loans: [],
     loanPayments: [],

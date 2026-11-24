@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { MotionPressable } from './MotionPressable';
-import { colors } from '../../theme';
+import { colors, radius, spacing, typography } from '../../theme';
 
 export function SegmentedControl<T extends string>({
   value,
@@ -16,10 +16,10 @@ export function SegmentedControl<T extends string>({
       accessibilityRole="tablist"
       style={{
         flexDirection: 'row',
-        backgroundColor: colors.light,
-        padding: 4,
-        borderRadius: 16,
-        gap: 4,
+        backgroundColor: colors.surfaceSecondary,
+        padding: spacing.xs,
+        borderRadius: radius.input,
+        gap: spacing.xs,
       }}
     >
       {options.map((option) => (
@@ -30,12 +30,13 @@ export function SegmentedControl<T extends string>({
           onPress={() => onChange(option.value)}
           style={{
             flex: 1,
-            minHeight: 48,
-            paddingHorizontal: 10,
-            paddingVertical: 12,
+            minHeight: 44,
+            minWidth: 0,
+            paddingHorizontal: spacing.sm,
+            paddingVertical: spacing.sm,
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: 12,
+            borderRadius: radius.icon,
             backgroundColor:
               option.value === value ? colors.card : 'transparent',
           }}
@@ -43,7 +44,7 @@ export function SegmentedControl<T extends string>({
           <Text
             style={{
               color: option.value === value ? colors.primary : colors.text,
-              fontSize: 14,
+              ...typography.label,
               fontWeight: '600',
               textAlign: 'center',
             }}

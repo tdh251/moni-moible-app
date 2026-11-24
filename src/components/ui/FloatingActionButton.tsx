@@ -7,7 +7,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Icon, type IconName } from './index';
-import { colors, layout } from '../../theme';
+import { colors, elevation, layout, radius } from '../../theme';
 import { motion } from '../../theme/motion';
 import { useReducedMotionPreference } from '../../hooks/motion';
 import { MotionPressable } from './MotionPressable';
@@ -55,6 +55,7 @@ export function FloatingActionButton({
         {
           position: 'absolute',
           right: layout.screenPadding,
+          maxWidth: '90%',
           bottom: layout.floatingButtonBottom,
         },
         animatedStyle,
@@ -78,20 +79,22 @@ export function FloatingActionButton({
           paddingHorizontal: text ? 18 : 0,
           flexDirection: 'row',
           gap: 8,
-          height: layout.floatingButtonSize,
-          borderRadius: layout.floatingButtonSize / 2,
+          minHeight: layout.floatingButtonSize,
+          paddingVertical: 12,
+          borderRadius: radius.pill,
           backgroundColor: colors.primary,
-          elevation: 5,
-          shadowColor: colors.text,
-          shadowOffset: { width: 0, height: 3 },
-          shadowOpacity: 0.18,
-          shadowRadius: 8,
+          ...elevation.floating,
         }}
       >
         <Icon name={icon} color={colors.onPrimary} size={24} />
         {text && (
           <Text
-            style={{ color: colors.onPrimary, fontSize: 15, fontWeight: '600' }}
+            style={{
+              color: colors.onPrimary,
+              fontSize: 15,
+              fontWeight: '600',
+              flexShrink: 1,
+            }}
           >
             {text}
           </Text>

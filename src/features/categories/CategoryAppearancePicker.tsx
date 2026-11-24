@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { Field, Icon, s } from '../../components/ui';
+import { SearchField, Icon, s } from '../../components/ui';
 import { colors } from '../../theme';
 import {
   categoryIconGroups,
@@ -57,10 +57,10 @@ export function CategoryAppearancePicker({
           s.row,
           {
             padding: 16,
-            borderWidth: 1,
+            borderWidth: 0,
             borderColor: colors.border,
             borderRadius: 16,
-            backgroundColor: colors.card,
+            backgroundColor: colors.brandMuted,
           },
         ]}
       >
@@ -74,7 +74,7 @@ export function CategoryAppearancePicker({
             backgroundColor: `${color}18`,
           }}
         >
-          <Icon name={icon} color={color} size={30} />
+          <Icon name={icon} color={color} size={26} />
         </View>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={s.text}>{name.trim() || 'Danh mục của bạn'}</Text>
@@ -86,7 +86,7 @@ export function CategoryAppearancePicker({
       </View>
       <Text style={s.label}>Biểu tượng · {allIcons.length} lựa chọn</Text>
       {searchable && (
-        <Field
+        <SearchField
           label="Tìm biểu tượng"
           placeholder="Ví dụ: quần áo, cà phê, thú cưng..."
           value={search}

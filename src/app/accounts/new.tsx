@@ -46,6 +46,7 @@ export default function NewAccount() {
       }
     >
       <AppCard>
+        <Text style={s.heading}>Thông tin tài khoản</Text>
         <Field
           label="Tên tài khoản"
           value={name}
@@ -54,6 +55,7 @@ export default function NewAccount() {
           placeholder="Ví dụ: Vietcombank"
         />
         <AmountInput
+          prominent
           label="Số dư ban đầu (VND)"
           value={amount}
           onChangeText={setAmount}

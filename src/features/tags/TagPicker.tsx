@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useReducedMotionPreference } from '../../hooks/motion';
 import { Keyboard, Modal, Pressable, Text, View } from 'react-native';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon, ScreenContainer, s } from '../../components/ui';
@@ -18,6 +19,7 @@ export function TagPicker({
   label?: string;
 }) {
   const { data, busy } = useFinance();
+  const reducedMotion = useReducedMotionPreference();
   const [open, setOpen] = useState(false);
   const tags = data.tags ?? [];
   const options = tags
@@ -82,13 +84,13 @@ export function TagPicker({
                     paddingHorizontal: 12,
                     borderRadius: 22,
                     backgroundColor: `${tag.color}18`,
-                    borderWidth: 1,
-                    borderColor: tag.color,
+                    maxWidth: '100%',
+                    borderWidth: 0,
                   },
                 ]}
               >
                 <Icon name="pricetag-outline" color={tag.color} size={16} />
-                <Text style={s.text}>{tag.name}</Text>
+                <Text style={[s.text, { flexShrink: 1 }]}>{tag.name}</Text>
                 <Icon name="close-outline" size={16} />
               </Pressable>
             );
@@ -97,7 +99,7 @@ export function TagPicker({
       )}
       <Modal
         visible={open}
-        animationType="slide"
+        animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => {
           if (!busy) setOpen(false);
         }}

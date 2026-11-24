@@ -6,8 +6,8 @@ export default function TransactionDrafts() {
   const { data } = useFinance();
   return (
     <ScreenContainer
-      title={`B?n nh?p (${data.transactionDrafts?.length ?? 0})`}
-      subtitle="Ch?a t?nh v?o s? d? v? th?ng k?. M? b?n nh?p ?? ch?nh s?a ho?c ghi giao d?ch."
+      title={`Bản nháp (${data.transactionDrafts?.length ?? 0})`}
+      subtitle="Chưa tính vào số dư và thống kê. Mở bản nháp để chỉnh sửa hoặc ghi giao dịch."
       back
       scroll={false}
     >

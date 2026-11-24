@@ -9,6 +9,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle, G } from 'react-native-svg';
 import { Amount, s } from '../../components/ui';
+import { MoneyRow } from '../../components/ui/primitives';
+import { useResponsiveLayout } from '../../hooks/useResponsiveLayout';
 import { colors } from '../../theme';
 import { useReducedMotionPreference } from '../../hooks/motion';
 import { motion } from '../../theme/motion';
@@ -34,7 +36,7 @@ function ChartBar({ ratio, color }: { ratio: number; color: string }) {
           height: '100%',
           width: '100%',
           backgroundColor: color,
-          borderRadius: 8,
+          borderRadius: 4,
           transformOrigin: 'left',
         },
         animatedStyle,
@@ -58,15 +60,12 @@ export const IncomeExpenseChart = memo(function IncomeExpenseChart({
         { name: 'Chi tiêu', value: expense, color: colors.expense },
       ].map((row) => (
         <View key={row.name} style={{ gap: 8 }}>
-          <View style={s.between}>
-            <Text style={s.muted}>{row.name}</Text>
-            <Amount value={row.value} style={{ color: row.color }} />
-          </View>
+          <MoneyRow label={row.name} value={row.value} tone={row.color} />
           <View
             accessibilityLabel={`${row.name}: ${Math.round((row.value / max) * 100)} phần trăm so với khoản lớn hơn`}
             style={{
-              height: 16,
-              borderRadius: 8,
+              height: 8,
+              borderRadius: 4,
               backgroundColor: colors.background,
               overflow: 'hidden',
             }}
@@ -88,6 +87,9 @@ export const DonutChart = memo(function DonutChart({
   rows: { id: string; amount: number; color: string }[];
   total: number;
 }) {
+  const { stack, largeText } = useResponsiveLayout();
+  const size = stack ? 152 : 168;
+  const centered = !largeText && total < 10_000_000;
   const radius = 66;
   const circumference = 2 * Math.PI * radius;
   const reducedMotion = useReducedMotionPreference();
@@ -109,45 +111,75 @@ export const DonutChart = memo(function DonutChart({
   return (
     <Animated.View
       entering={reducedMotion ? undefined : chartEntering}
-      style={{ alignItems: 'center', justifyContent: 'center', height: 190 }}
+      style={{ alignItems: 'center', gap: 12, paddingVertical: 8 }}
     >
-      <Svg
-        width={190}
-        height={190}
-        viewBox="0 0 190 190"
-        accessibilityLabel="Biểu đồ tỷ trọng danh mục"
-      >
-        <Circle
-          cx={95}
-          cy={95}
-          r={radius}
-          stroke={colors.border}
-          strokeWidth={24}
-          fill="none"
-        />
-        <G rotation={-90} origin="95, 95">
-          {segments.map((row) => (
-            <Circle
-              key={row.id}
-              cx={95}
-              cy={95}
-              r={radius}
-              stroke={row.color}
-              strokeWidth={24}
-              fill="none"
-              strokeDasharray={`${row.length} ${circumference - row.length}`}
-              strokeDashoffset={-row.offset}
-            />
-          ))}
-        </G>
-      </Svg>
       <View
-        pointerEvents="none"
-        style={{ position: 'absolute', alignItems: 'center' }}
+        style={{
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
       >
-        <Text style={s.muted}>Tổng trong kỳ</Text>
-        <Amount value={total} style={{ fontSize: 15 }} />
+        <Svg
+          width={size}
+          height={size}
+          viewBox="0 0 190 190"
+          accessibilityLabel="Biểu đồ tỷ trọng danh mục"
+        >
+          <Circle
+            cx={95}
+            cy={95}
+            r={radius}
+            stroke={colors.border}
+            strokeWidth={18}
+            fill="none"
+          />
+          <G rotation={-90} origin="95, 95">
+            {segments.map((row) => (
+              <Circle
+                key={row.id}
+                cx={95}
+                cy={95}
+                r={radius}
+                stroke={row.color}
+                strokeWidth={18}
+                fill="none"
+                strokeDasharray={`${row.length} ${circumference - row.length}`}
+                strokeDashoffset={-row.offset}
+              />
+            ))}
+          </G>
+        </Svg>
+        {centered && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              alignItems: 'center',
+              width: size * 0.6,
+              gap: 4,
+            }}
+          >
+            <Amount value={total} style={{ fontSize: 14, lineHeight: 20 }} />
+            <Text style={[s.muted, { fontSize: 11, textAlign: 'center' }]}>
+              Tổng trong kỳ
+            </Text>
+          </View>
+        )}
       </View>
+      {!centered && (
+        <View style={{ alignItems: 'center', width: '100%', gap: 4 }}>
+          <Text style={s.muted}>Tổng trong kỳ</Text>
+          <Amount
+            value={total}
+            style={{
+              fontSize: largeText ? 18 : 22,
+              lineHeight: largeText ? 26 : 30,
+            }}
+          />
+        </View>
+      )}
     </Animated.View>
   );
 });

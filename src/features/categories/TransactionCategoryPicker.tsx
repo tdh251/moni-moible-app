@@ -3,6 +3,7 @@ import {
   categoryTree,
 } from '../../services/categories/hierarchy';
 import { useState } from 'react';
+import { useReducedMotionPreference } from '../../hooks/motion';
 import { Keyboard, Modal, View } from 'react-native';
 import { ScreenContainer, s } from '../../components/ui';
 import { Dropdown } from '../../components/ui/Dropdown';
@@ -21,6 +22,7 @@ export function TransactionCategoryPicker({
   onChange: (id: string) => void;
 }) {
   const { data, busy } = useFinance();
+  const reducedMotion = useReducedMotionPreference();
   const [adding, setAdding] = useState(false);
   const options = categoryTree(
     data.categories.filter(
@@ -56,7 +58,7 @@ export function TransactionCategoryPicker({
       />
       <Modal
         visible={adding}
-        animationType="slide"
+        animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => {
           if (!busy) setAdding(false);
         }}

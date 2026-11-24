@@ -1,161 +1,197 @@
-import { useMemo, useState } from 'react';
-import { FlatList, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { AppState, SectionList, Text, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import {
-  AppCard,
+  Amount,
   Choices,
   EmptyState,
+  SearchField,
   ScreenContainer,
+  SecondaryButton,
   s,
-  Amount,
 } from '../../components/ui';
+import { DebtRow } from '../../features/debts/DebtRow';
 import { useFinance } from '../../hooks/finance';
 import {
-  loanBalances,
-  loanMonthlyPayment,
-  totalLoanOutstanding,
-} from '../../services/loans';
-import { LoanCounterpartyGroup } from '../../features/loans/LoanCounterpartyGroup';
-import type { Loan } from '../../types/finance';
+  createDebtEntries,
+  debtTotals,
+  groupDebts,
+  type DebtKind,
+  type DebtSide,
+} from '../../services/debts';
+import { colors, layout } from '../../theme';
+import { HeroCard, MoneyRow, Disclosure } from '../../components/ui/primitives';
 
-type LoanEntry = Loan & {
-  remaining: number;
-  monthly: ReturnType<typeof loanMonthlyPayment>;
-};
-type LoanGroup = {
-  key: string;
-  name: string;
-  loans: LoanEntry[];
-  remaining: number;
-};
-
-export default function Loans() {
+export default function Debts() {
   const { data, reminderWarning, busy } = useFinance();
-  const [status, setStatus] = useState('');
-  const [direction, setDirection] = useState('borrow');
-  const lending = direction === 'lend';
-  const matchingLoans = useMemo(
-    () =>
-      (data.loans ?? []).filter(
-        (loan) => (loan.direction ?? 'borrow') === direction,
-      ),
-    [data.loans, direction],
-  );
-  const balances = useMemo(() => loanBalances(data), [data]);
-  const outstanding = useMemo(
-    () => totalLoanOutstanding(data, lending ? 'lend' : 'borrow'),
-    [data, lending],
-  );
-  const groups = useMemo(() => {
-    const byCounterparty = new Map<string, LoanGroup>();
-    for (const loan of matchingLoans) {
-      const entry: LoanEntry = {
-        ...loan,
-        remaining: balances.get(loan.id) ?? 0,
-        monthly: loanMonthlyPayment(loan),
+  const params = useLocalSearchParams<{ side?: string; kind?: string }>();
+  const side: DebtSide = params.side === 'payable' ? 'payable' : 'receivable';
+  const collecting = side === 'receivable';
+  const kind: DebtKind | '' = collecting
+    ? params.kind === 'lend' || params.kind === 'purchase'
+      ? params.kind
+      : ''
+    : '';
+  const [status, setStatus] = useState<'open' | 'settled' | ''>('open');
+  const [search, setSearch] = useState('');
+  const query = useDeferredValue(search);
+  const [now, setNow] = useState(() => Date.now());
+  useFocusEffect(
+    useCallback(() => {
+      const refresh = () => setNow(Date.now());
+      refresh();
+      const timer = setInterval(refresh, 60_000);
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') refresh();
+      });
+      return () => {
+        clearInterval(timer);
+        subscription.remove();
       };
-      if (
-        status !== '' &&
-        (status === 'open' ? entry.remaining <= 0 : entry.remaining !== 0)
-      )
-        continue;
-      const name = loan.lender.trim();
-      const key = name.toLocaleLowerCase('vi-VN');
-      const existing = byCounterparty.get(key);
-      if (existing) {
-        existing.loans.push(entry);
-        existing.remaining += entry.remaining;
-      } else {
-        byCounterparty.set(key, {
-          key,
-          name,
-          loans: [entry],
-          remaining: entry.remaining,
-        });
-      }
-    }
-    return [...byCounterparty.values()]
-      .map((group) => ({
-        ...group,
-        loans: group.loans.sort((a, b) =>
-          b.occurred_at.localeCompare(a.occurred_at),
-        ),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-  }, [matchingLoans, balances, status]);
+    }, []),
+  );
+  const entries = useMemo(() => createDebtEntries(data), [data]);
+  const totals = useMemo(() => debtTotals(entries), [entries]);
+  const sections = useMemo(
+    () => groupDebts(entries, { side, kind, status, search: query }),
+    [entries, side, kind, status, query],
+  );
+  const accountNames = useMemo(
+    () => new Map(data.accounts.map((account) => [account.id, account.name])),
+    [data.accounts],
+  );
+  const tint = collecting ? colors.primary : colors.expense;
 
   return (
     <ScreenContainer
-      title="Khoản vay"
-      subtitle="Theo dõi khoản vay và tiền cần thu hồi."
+      title="Công nợ"
       tabScreen
       scroll={false}
       floatingAction={
         <FloatingAddButton
-          label={lending ? 'Thêm cho vay' : 'Thêm vay'}
-          hint={lending ? 'Thêm khoản cho vay mới' : 'Thêm khoản vay mới'}
+          label="Thêm công nợ"
+          hint="Chọn ghi cho vay, đi vay hoặc mua hộ"
           disabled={busy}
           onPress={() =>
-            router.push({ pathname: '/loans/new', params: { direction } })
+            router.push({ pathname: '/debts/new', params: { side } })
           }
         />
       }
     >
-      <FlatList
-        data={groups}
-        keyExtractor={(group) => group.key}
+      <SegmentedControl
+        value={side}
+        onChange={(next) => router.setParams({ side: next, kind: '' })}
+        options={[
+          { value: 'receivable', label: 'Cần thu' },
+          { value: 'payable', label: 'Cần trả' },
+        ]}
+      />
+      <SectionList
+        style={{ flex: 1 }}
+        sections={sections}
+        extraData={now}
+        keyExtractor={(entry) => entry.key}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        stickySectionHeadersEnabled={false}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[s.listContent, { gap: 12 }]}
+        contentContainerStyle={{ paddingBottom: layout.floatingContentPadding }}
         ListHeaderComponent={
           <View style={{ gap: 16 }}>
-            {!!reminderWarning && <Text style={s.text}>{reminderWarning}</Text>}
-            <Choices
-              value={direction}
-              onChange={setDirection}
-              options={[
-                { value: 'borrow', label: 'Đi vay' },
-                { value: 'lend', label: 'Cho vay' },
-              ]}
+            <SecondaryButton
+              label="Thu chi hộ · Nhận trước & quyết toán"
+              icon="people-outline"
+              onPress={() => router.push('/third-party')}
             />
-            <AppCard>
-              <Text style={s.muted}>
-                {lending ? 'Tổng cần thu hồi' : 'Tổng còn nợ'}
-              </Text>
-              <Amount
-                value={outstanding}
-                style={{ fontSize: 30, lineHeight: 42 }}
-              />
-            </AppCard>
+            <HeroCard
+              label={collecting ? 'Tổng tiền cần thu' : 'Tổng tiền cần trả'}
+              value={totals[side]}
+              subtitle="Tất cả các kỳ · Tổng trước bộ lọc"
+            >
+              {collecting && (
+                <View style={{ gap: 8 }}>
+                  <MoneyRow
+                    label="Cho vay"
+                    value={totals.lend}
+                    tone={colors.onDark}
+                    labelTone={colors.onDarkMuted}
+                  />
+                  <MoneyRow
+                    label="Mua hộ chờ hoàn"
+                    value={totals.purchase}
+                    tone={colors.onDark}
+                    labelTone={colors.onDarkMuted}
+                  />
+                </View>
+              )}
+            </HeroCard>
+            {!!reminderWarning && <Text style={s.text}>{reminderWarning}</Text>}
+            {collecting && (
+              <Disclosure title="Lọc loại khoản cần thu" active={!!kind}>
+                <Choices<DebtKind | ''>
+                  value={kind}
+                  onChange={(next) => router.setParams({ kind: next })}
+                  options={[
+                    { value: '', label: 'Tất cả loại' },
+                    { value: 'lend', label: 'Cho vay' },
+                    { value: 'purchase', label: 'Mua hộ' },
+                  ]}
+                />
+              </Disclosure>
+            )}
             <Choices
               value={status}
               onChange={setStatus}
               options={[
+                {
+                  value: 'open',
+                  label: collecting ? 'Chưa thu hết' : 'Chưa trả hết',
+                },
+                { value: 'settled', label: 'Đã xong' },
                 { value: '', label: 'Tất cả' },
-                { value: 'open', label: lending ? 'Chưa thu hết' : 'Còn nợ' },
-                { value: 'paid', label: lending ? 'Đã thu hết' : 'Đã trả' },
               ]}
+            />
+            <SearchField
+              label="Tìm công nợ"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Tên người, nội dung, ghi chú"
             />
           </View>
         }
+        renderSectionHeader={({ section }) => (
+          <View
+            style={[
+              s.between,
+              { marginTop: 24, marginBottom: 10, gap: 12, flexWrap: 'wrap' },
+            ]}
+          >
+            <Text style={s.heading}>{section.title}</Text>
+            <Amount value={section.remaining} style={{ color: tint }} />
+          </View>
+        )}
         renderItem={({ item }) => (
-          <LoanCounterpartyGroup
-            group={item}
-            lending={lending}
-            accounts={data.accounts}
+          <DebtRow
+            entry={item}
+            accountName={accountNames.get(item.accountId) ?? ''}
+            now={now}
           />
         )}
         ListEmptyComponent={
           <EmptyState
             title={
-              lending
-                ? 'Chưa có khoản cho vay phù hợp'
-                : 'Chưa có khoản vay phù hợp'
+              collecting
+                ? 'Chưa có khoản cần thu phù hợp'
+                : 'Chưa có khoản cần trả phù hợp'
             }
             description={
-              lending
-                ? 'Thêm khoản cho vay để theo dõi người vay và số tiền cần thu hồi.'
-                : 'Thêm khoản vay để theo dõi chủ nợ và số tiền còn nợ.'
+              collecting
+                ? 'Thêm khoản cho vay, mua hộ hoặc đổi bộ lọc để xem các khoản đã ghi.'
+                : 'Thêm khoản đi vay hoặc đổi bộ lọc để xem các khoản đã ghi.'
             }
             icon="people-outline"
           />

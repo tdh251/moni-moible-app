@@ -1,4 +1,19 @@
-# Moni JSON backup v3
+# Moni JSON backup v22
+
+Phiên bản xuất hiện tại là **22**, nhập được v1–v22. V22 thêm `data.thirdPartyCases`, `data.thirdPartyEntries`, `data.thirdPartySettlements`; thiếu các mảng này trong bản cũ được hiểu là `[]`. Bản mang version dưới 22 nhưng chứa thu chi hộ bị từ chối. V21 thêm `data.purchases` và `data.purchaseRefunds`; thiếu hai mảng trong bản cũ được hiểu là `[]`. Các bản mang version dưới 21 nhưng chứa khoản mua hộ hoặc hoàn tiền sẽ bị từ chối. Phần mô tả các phiên bản cũ bên dưới là lịch sử định dạng.
+
+- `thirdPartyCases`: thông tin hồ sơ, số tiền dự kiến tùy chọn, trạng thái công việc, thời điểm và `revision` để phát hiện chỉnh sửa cũ. Không lưu tổng tiền/công nợ đã tính.
+- `thirdPartyEntries`: bảy loại bút toán, số nguyên VND dương, tài khoản **hoặc** danh mục (không đồng thời), tag, thời điểm, thứ tự `sequence`, liên kết khoản thanh toán gốc và lần quyết toán nếu có.
+- `thirdPartySettlements`: mã yêu cầu duy nhất, hồ sơ, `request_json` chứa nội dung và chiều quyết toán, thời điểm tạo/hoàn tác. Nhật ký được giữ sau hoàn tác để retry không tạo lại dòng tiền.
+
+Validator phát lại lịch sử từng hồ sơ để kiểm tra chiều quyết toán, tiền nhà bán hoàn, giới hạn quyết toán và trạng thái hoàn tất. Bút toán thuộc một quyết toán phải khớp đầy đủ với nhật ký; không được mất hoặc sửa riêng một phần. Tất cả dòng tiền thật cùng tham gia kiểm tra số dư lịch sử hiện có. Khôi phục validate trước khi ghi và chạy nguyên tử; lỗi giữa chừng giữ nguyên sổ cũ. Foreign key không cascade xóa hồ sơ/bút toán thu chi hộ.
+
+CSV có từng bút toán `Thu chi hộ · <nghiệp vụ>`, tên hồ sơ/người liên quan, tài khoản nếu có dòng tiền, danh mục/tag nếu có và ngày ghi nhận. Giữ lại/tự chịu có cột `Không tính vào số dư = Có`, được ghi đúng một lần trong CSV. Hồ sơ chưa phát sinh bút toán và nhật ký hoàn tác được bảo toàn bằng JSON, không giả lập thành giao dịch CSV.
+
+- `purchases`: `id`, `title`, `person`, `amount`, `account_id`, `note`, `due_at` (ISO UTC hoặc `null`), `occurred_at`, `created_at`, `updated_at`.
+- `purchaseRefunds`: `id`, `purchase_id`, `amount`, `account_id`, `note`, `occurred_at`, `created_at`.
+
+Tiền là số nguyên VND dương. Tổng tiền hoàn không vượt tiền mua hộ, ngày hoàn không trước ngày mua hộ, tài khoản và khoản mua hộ tham chiếu phải tồn tại. Validator kiểm tra cả số dư lịch sử cùng giao dịch và vay/cho vay. Khôi phục nguyên tử toàn bộ các bảng, kể cả các lần hoàn tiền. CSV có dòng `Mua hộ` và `Hoàn tiền mua hộ`, tài khoản và thời điểm tương ứng; hai loại này không phải thu nhập/chi tiêu cá nhân.
 
 Phiên bản xuất hiện tại là **2**, vẫn nhận bản sao lưu v1 của tên app cũ. Giá trị `format: "monomoney"` giữ nguyên để tương thích dữ liệu. V2 thêm `transactions.adjustments_json`: chuỗi JSON của tối đa 20 dòng `{id, name, rate_bps}`. Ví dụ chuỗi `[{"id":"discount","name":"Chiết khấu","rate_bps":-500}]` nghĩa là giảm 5%. V1 không có dòng điều chỉnh; khi nhập dùng `[]`. App cũ chỉ biết v1 sẽ từ chối v2 thay vì tính sai số tiền.
 

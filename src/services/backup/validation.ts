@@ -34,7 +34,9 @@ export interface Backup {
     | 17
     | 18
     | 19
-    | 20;
+    | 20
+    | 21
+    | 22;
   exported_at: string;
   data: Snapshot;
 }
@@ -97,10 +99,12 @@ export function validateBackup(value: unknown): Backup {
         value.version === 17 ||
         value.version === 18 ||
         value.version === 19 ||
-        value.version === 20) &&
+        value.version === 20 ||
+        value.version === 21 ||
+        value.version === 22) &&
       typeof value.exported_at === 'string' &&
       validDate(value.exported_at),
-    'Không đúng định dạng bản sao lưu phiên bản 1 đến 20.',
+    'Không đúng định dạng bản sao lưu phiên bản 1 đến 22.',
   );
   const backupVersion = value.version;
   const data = value.data;
@@ -115,6 +119,23 @@ export function validateBackup(value: unknown): Backup {
   const tags = rows(data.tags ?? []);
   const loans = rows(data.loans ?? []);
   const loanPayments = rows(data.loanPayments ?? []);
+  const purchases = rows(data.purchases ?? []);
+  const purchaseRefunds = rows(data.purchaseRefunds ?? []);
+  const thirdPartyCases = rows(data.thirdPartyCases ?? []);
+  const thirdPartyEntries = rows(data.thirdPartyEntries ?? []);
+  const thirdPartySettlements = rows(data.thirdPartySettlements ?? []);
+  ensure(
+    backupVersion >= 22 ||
+      (thirdPartyCases.length === 0 &&
+        thirdPartyEntries.length === 0 &&
+        thirdPartySettlements.length === 0),
+    'Bản sao lưu có thu chi hộ phải dùng phiên bản 22.',
+  );
+  ensure(
+    backupVersion >= 21 ||
+      (purchases.length === 0 && purchaseRefunds.length === 0),
+    'Bản sao lưu có mua hộ phải dùng phiên bản 21.',
+  );
   const transactionDrafts = rows(data.transactionDrafts ?? []).map(
     validateTransactionDraft,
   );
@@ -215,6 +236,11 @@ export function validateBackup(value: unknown): Backup {
       (accounts.length === 0 &&
         transactions.length === 0 &&
         items.length === 0 &&
+        purchases.length === 0 &&
+        purchaseRefunds.length === 0 &&
+        thirdPartyCases.length === 0 &&
+        thirdPartyEntries.length === 0 &&
+        thirdPartySettlements.length === 0 &&
         transactionDrafts.length === 0),
     'Dữ liệu chưa thiết lập không được có giao dịch.',
   );
@@ -333,6 +359,11 @@ export function validateBackup(value: unknown): Backup {
     }
   // Shape guards above plus the domain validator check money, references, types, totals and historical balances.
   const ledger = {
+    thirdPartyCases,
+    thirdPartyEntries,
+    thirdPartySettlements,
+    purchases,
+    purchaseRefunds,
     accounts,
     loans: loans.map((loan) => ({
       ...loan,
@@ -393,7 +424,7 @@ export function validateBackup(value: unknown): Backup {
   validateLedger(normalized);
   return {
     format: 'monomoney',
-    version: 20,
+    version: 22,
     exported_at: value.exported_at,
     data: {
       ...normalized,

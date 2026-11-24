@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useReducedMotionPreference } from '../../hooks/motion';
 import { Keyboard, Modal, View } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { ScreenContainer, s } from '../../components/ui';
@@ -25,6 +26,7 @@ export function TransactionCategoriesPicker({
   label?: string;
 }) {
   const { data, busy } = useFinance();
+  const reducedMotion = useReducedMotionPreference();
   const [adding, setAdding] = useState(false);
   const options = categoryTree(
     data.categories.filter(
@@ -71,7 +73,7 @@ export function TransactionCategoriesPicker({
       />
       <Modal
         visible={adding}
-        animationType="slide"
+        animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => {
           if (!busy) setAdding(false);
         }}

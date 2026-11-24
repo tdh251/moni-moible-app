@@ -1,12 +1,12 @@
 import { TagBadges } from '../../features/tags/TagBadges';
 import { transactionCategoryTags } from '../../services/categories/tags';
 import { categoryPath } from '../../services/categories/hierarchy';
-import React, { memo } from 'react';
+import React, { memo, useId, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,13 +16,24 @@ import {
   type ColorValue,
   type TextInputProps,
   type ViewStyle,
+  type StyleProp,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { colors, layout } from '../../theme';
+import {
+  colors,
+  elevation,
+  layout,
+  radius,
+  spacing,
+  typography,
+} from '../../theme';
+import { useResponsiveLayout } from '../../hooks/useResponsiveLayout';
 import { Dropdown } from './Dropdown';
 import { MotionPressable } from './MotionPressable';
+import { requestConfirmation } from './confirmation';
 import type { TransactionListIndex } from '../../services/transaction-list';
 import { usePreferences } from '../../stores/preferences';
 import { formatVnd, typeNames } from '../../utils/format';
@@ -54,59 +65,50 @@ export const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: {
     padding: layout.screenPadding,
-    gap: layout.sectionGap,
-    paddingBottom: 40,
+    gap: spacing.md,
+    paddingBottom: spacing.xl,
     width: '100%',
     maxWidth: layout.contentWidth,
     alignSelf: 'center',
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: colors.text,
-    letterSpacing: -0.8,
-  },
-  heading: {
-    fontSize: 18,
-    lineHeight: 26,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  text: { fontSize: 15, color: colors.text, lineHeight: 23 },
-  muted: { fontSize: 13, color: colors.muted, lineHeight: 20 },
+  title: { ...typography.page, color: colors.text },
+  heading: { ...typography.card, color: colors.text },
+  text: { ...typography.body, color: colors.text },
+  muted: { ...typography.label, color: colors.muted },
   card: {
+    ...elevation.card,
     backgroundColor: colors.card,
-    borderRadius: 22,
-    padding: 20,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radius.card,
+    padding: spacing.md,
+    gap: spacing.compact,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.compact },
   between: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: spacing.compact,
+    flexWrap: 'wrap',
   },
   button: {
-    minHeight: 52,
-    borderRadius: 16,
-    padding: 14,
+    minHeight: 48,
+    borderRadius: radius.button,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.compact,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
     backgroundColor: colors.primary,
   },
   buttonText: {
-    fontSize: 15,
-    fontWeight: '600',
+    ...typography.button,
     color: colors.onPrimary,
     textAlign: 'center',
+    flexShrink: 1,
   },
   secondary: {
-    backgroundColor: colors.card,
+    backgroundColor: colors.brandMuted,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -116,52 +118,53 @@ export const s = StyleSheet.create({
     borderColor: colors.dangerBorder,
   },
   field: {
-    minHeight: 52,
+    minHeight: 48,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.card,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 7,
-  },
-  fieldGroup: { gap: 8 },
-  selectGroup: { gap: 6 },
-  fieldLabel: {
-    fontSize: 13,
-    lineHeight: 20,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  pill: {
-    minHeight: layout.touchTarget,
+    borderRadius: radius.input,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 13,
+    paddingVertical: spacing.compact,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.text,
     backgroundColor: colors.card,
+  },
+  label: { ...typography.label, color: colors.muted, marginBottom: spacing.xs },
+  fieldGroup: { gap: spacing.sm },
+  selectGroup: { gap: spacing.sm },
+  fieldLabel: { ...typography.label, color: colors.muted },
+  pill: {
+    minHeight: 44,
+    maxWidth: '100%',
+    paddingHorizontal: spacing.compact,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.small,
+    backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'transparent',
   },
   selected: { backgroundColor: colors.light, borderColor: colors.primary },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  divider: { height: 1, backgroundColor: colors.border },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   listContent: { paddingBottom: layout.floatingContentPadding },
   iconButton: {
     minWidth: layout.touchTarget,
     minHeight: layout.touchTarget,
-    borderRadius: 14,
+    borderRadius: radius.icon,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textAction: { minHeight: layout.touchTarget, justifyContent: 'center' },
-  textActionLabel: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  textAction: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  textActionLabel: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
 });
 export function IconButton({
   label,
@@ -209,8 +212,8 @@ export function AppHeader({
   backDisabled?: boolean;
 }) {
   return (
-    <View style={{ gap: 6 }}>
-      <View style={s.between}>
+    <View style={{ gap: spacing.xs }}>
+      <View style={[s.between, { flexWrap: 'nowrap', gap: spacing.sm }]}>
         {back && (
           <IconButton
             label="Quay lại"
@@ -227,7 +230,10 @@ export function AppHeader({
         <Text
           accessibilityRole="header"
           numberOfLines={2}
-          style={[s.title, { flex: 1, fontSize: back ? 22 : 26 }]}
+          style={[
+            back || onClose ? typography.detail : typography.page,
+            { color: colors.text, flex: 1, minWidth: 0 },
+          ]}
         >
           {title}
         </Text>
@@ -244,10 +250,49 @@ export function AppHeader({
         )}
         {rightAction}
       </View>
-      {subtitle && <Text style={s.muted}>{subtitle}</Text>}
+      {subtitle && (
+        <Text style={[s.muted, { paddingLeft: back ? 56 : 0 }]}>
+          {subtitle}
+        </Text>
+      )}
     </View>
   );
 }
+const ScreenBackdrop = memo(function ScreenBackdrop() {
+  const id = 'moniBackdrop' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  return (
+    <View
+      pointerEvents="none"
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: '100%',
+        height: 480,
+      }}
+    >
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 430 480"
+        preserveAspectRatio="none"
+      >
+        <Defs>
+          <LinearGradient id={id} x1="1" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#CCE5D9" stopOpacity="0.6" />
+            <Stop offset="1" stopColor={colors.background} stopOpacity="0" />
+          </LinearGradient>
+        </Defs>
+        <Path
+          d="M430 0 L430 480 L30 480 Q150 100 430 24 Z"
+          fill={`url(#${id})`}
+        />
+      </Svg>
+    </View>
+  );
+});
 export function ScreenContainer({
   floatingAction,
   rightAction,
@@ -286,12 +331,16 @@ export function ScreenContainer({
           : ['top', 'left', 'right', 'bottom']
       }
     >
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <ScreenBackdrop />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <View
           style={{
             paddingHorizontal: layout.screenPadding,
-            paddingTop: 12,
-            paddingBottom: layout.sectionGap,
+            paddingTop: spacing.sm,
+            paddingBottom: spacing.compact,
             width: '100%',
             maxWidth: layout.contentWidth,
             alignSelf: 'center',
@@ -339,7 +388,7 @@ export function ScreenContainer({
             <View
               style={{
                 paddingHorizontal: layout.screenPadding,
-                paddingVertical: 12,
+                paddingVertical: spacing.compact,
                 width: '100%',
                 maxWidth: layout.contentWidth,
                 alignSelf: 'center',
@@ -373,7 +422,7 @@ export function AppCard({
   style,
 }: {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }) {
   return <View style={[s.card, style]}>{children}</View>;
 }
@@ -383,6 +432,8 @@ interface ButtonProps {
   disabled?: boolean;
   icon?: string;
   danger?: boolean;
+  loading?: boolean;
+  description?: string;
 }
 export function TextButton({ label, onPress, disabled, danger }: ButtonProps) {
   return (
@@ -404,7 +455,14 @@ export function TextButton({ label, onPress, disabled, danger }: ButtonProps) {
   );
 }
 
-export function NavigationRow({ label, icon, onPress, disabled }: ButtonProps) {
+export function NavigationRow({
+  label,
+  icon,
+  onPress,
+  disabled,
+  description,
+  danger,
+}: ButtonProps) {
   return (
     <MotionPressable
       accessibilityRole="button"
@@ -414,11 +472,42 @@ export function NavigationRow({ label, icon, onPress, disabled }: ButtonProps) {
       onPress={onPress}
       style={[
         s.row,
-        { minHeight: 64, paddingHorizontal: 20, paddingVertical: 12 },
+        {
+          minHeight: 60,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.compact,
+        },
       ]}
     >
-      {icon && <Icon name={icon} />}
-      <Text style={[s.text, { flex: 1, fontWeight: '600' }]}>{label}</Text>
+      {icon && (
+        <View
+          style={{
+            backgroundColor: danger ? colors.dangerLight : colors.brandMuted,
+            borderRadius: radius.icon,
+            width: 36,
+            height: 36,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon
+            name={icon}
+            size={20}
+            color={danger ? colors.danger : colors.primary}
+          />
+        </View>
+      )}
+      <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>
+        <Text
+          style={[
+            s.text,
+            { fontWeight: '500', color: danger ? colors.danger : colors.text },
+          ]}
+        >
+          {label}
+        </Text>
+        {description && <Text style={s.muted}>{description}</Text>}
+      </View>
       <Icon name="chevron-forward-outline" size={18} color={colors.muted} />
     </MotionPressable>
   );
@@ -429,21 +518,22 @@ export function PrimaryButton({
   disabled,
   icon,
   danger,
+  loading = false,
 }: ButtonProps) {
   return (
     <MotionPressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
-      disabled={disabled}
+      accessibilityState={{ disabled: !!disabled || loading, busy: loading }}
+      disabled={disabled || loading}
       onPress={onPress}
-      style={[s.button, danger && s.danger]}
+      style={[s.button, danger && { backgroundColor: colors.danger }]}
     >
-      {icon && (
-        <Icon name={icon} color={danger ? colors.danger : colors.onPrimary} />
+      {loading ? (
+        <ActivityIndicator color={colors.onPrimary} size="small" />
+      ) : (
+        icon && <Icon name={icon} color={colors.onPrimary} size={20} />
       )}
-      <Text style={[s.buttonText, danger && { color: colors.danger }]}>
-        {label}
-      </Text>
+      <Text style={s.buttonText}>{label}</Text>
     </MotionPressable>
   );
 }
@@ -476,21 +566,92 @@ export function SecondaryButton({
     </MotionPressable>
   );
 }
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({
+  label,
+  error,
+  hint,
+  leadingIcon,
+  hideLabel = false,
+  ...props
+}: TextInputProps & {
+  label: string;
+  error?: string;
+  hint?: string;
+  leadingIcon?: string;
+  hideLabel?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={s.fieldGroup}>
-      <Text style={s.fieldLabel}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        placeholderTextColor={colors.muted}
-        {...props}
-        style={[
-          s.field,
-          props.multiline && { minHeight: 90, textAlignVertical: 'top' },
-          props.style,
-        ]}
-      />
+      {!hideLabel && <Text style={s.fieldLabel}>{label}</Text>}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: props.multiline ? 'flex-start' : 'center',
+          gap: spacing.sm,
+          paddingHorizontal: 14,
+          borderRadius: radius.input,
+          borderWidth: 1,
+          borderColor: error
+            ? colors.danger
+            : focused
+              ? colors.primary
+              : colors.border,
+          backgroundColor:
+            props.editable === false ? colors.surfaceSecondary : colors.card,
+        }}
+      >
+        {leadingIcon && (
+          <Icon name={leadingIcon} size={20} color={colors.muted} />
+        )}
+        <TextInput
+          accessibilityLabel={label}
+          placeholderTextColor={colors.placeholder}
+          {...props}
+          accessibilityHint={error ?? hint ?? props.accessibilityHint}
+          onFocus={(event) => {
+            setFocused(true);
+            props.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            props.onBlur?.(event);
+          }}
+          style={[
+            s.field,
+            {
+              flex: 1,
+              minWidth: 0,
+              borderWidth: 0,
+              backgroundColor: 'transparent',
+              paddingHorizontal: 0,
+            },
+            props.multiline && { minHeight: 88, textAlignVertical: 'top' },
+            props.style,
+          ]}
+        />
+      </View>
+      {!!(error || hint) && (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[s.muted, error ? { color: colors.danger } : undefined]}
+        >
+          {error || hint}
+        </Text>
+      )}
     </View>
+  );
+}
+export function SearchField(props: TextInputProps & { label: string }) {
+  return (
+    <Field
+      {...props}
+      leadingIcon="search-outline"
+      hideLabel
+      returnKeyType="search"
+      autoCapitalize="none"
+      autoCorrect={false}
+    />
   );
 }
 export function AmountInput({
@@ -498,14 +659,16 @@ export function AmountInput({
   value,
   onChangeText,
   showHint = true,
+  prominent = false,
 }: {
   label?: string;
   value: string;
   onChangeText: (v: string) => void;
   showHint?: boolean;
+  prominent?: boolean;
 }) {
   return (
-    <View>
+    <View style={{ gap: spacing.sm }}>
       <Field
         label={label}
         keyboardType="number-pad"
@@ -513,6 +676,13 @@ export function AmountInput({
         onChangeText={onChangeText}
         maxLength={16}
         placeholder="0"
+        style={{
+          fontSize: prominent ? 28 : 20,
+          lineHeight: prominent ? 38 : 28,
+          fontWeight: '600',
+          fontVariant: ['tabular-nums'],
+          paddingVertical: spacing.sm,
+        }}
       />
       {showHint && (
         <Text style={s.muted}>
@@ -537,8 +707,8 @@ export function Amount({
   return (
     <Text
       style={[
-        s.text,
-        { fontWeight: '700', fontVariant: ['tabular-nums'] },
+        typography.amount,
+        { color: colors.text, maxWidth: '100%', textAlign: 'right' },
         style,
       ]}
     >
@@ -565,13 +735,22 @@ export function Choices<T extends string>({
           style={[s.pill, o.value === value && s.selected]}
           onPress={() => onChange(o.value)}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              flexShrink: 1,
+            }}
+          >
             {o.icon && <Icon name={o.icon} size={17} />}
             <Text
               style={{
                 color: o.value === value ? colors.primary : colors.muted,
                 fontSize: 13,
-                fontWeight: '600',
+                lineHeight: 20,
+                fontWeight: '500',
+                flexShrink: 1,
               }}
             >
               {o.label}
@@ -677,11 +856,22 @@ export function EmptyState({
   icon?: string;
 }) {
   return (
-    <View style={{ alignItems: 'center', padding: 28, gap: 10 }}>
+    <View
+      style={{
+        alignItems: 'center',
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.lg,
+        gap: spacing.sm,
+      }}
+    >
       <View
-        style={{ backgroundColor: colors.light, padding: 18, borderRadius: 24 }}
+        style={{
+          backgroundColor: colors.brandMuted,
+          padding: spacing.md,
+          borderRadius: radius.card,
+        }}
       >
-        <Icon name={icon} size={30} />
+        <Icon name={icon} size={26} />
       </View>
       <Text style={[s.heading, { textAlign: 'center' }]}>{title}</Text>
       <Text style={[s.muted, { textAlign: 'center' }]}>{description}</Text>
@@ -693,11 +883,49 @@ export function LoadingState() {
     <SafeAreaView
       style={[
         s.screen,
-        { alignItems: 'center', justifyContent: 'center', gap: 15 },
+        { justifyContent: 'center', gap: spacing.lg, padding: spacing.lg },
       ]}
     >
-      <ActivityIndicator color={colors.primary} />
-      <Text style={s.muted}>Đang mở sổ tiền…</Text>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{ gap: spacing.md }}
+      >
+        <View
+          style={{
+            height: 28,
+            width: '44%',
+            borderRadius: radius.small,
+            backgroundColor: colors.border,
+          }}
+        />
+        <View
+          style={{
+            height: 164,
+            borderRadius: radius.hero,
+            backgroundColor: colors.light,
+          }}
+        />
+        {[1, 2, 3].map((key) => (
+          <View
+            key={key}
+            style={{
+              height: 60,
+              borderRadius: radius.card,
+              backgroundColor: colors.surfaceSecondary,
+            }}
+          />
+        ))}
+      </View>
+      <View
+        accessibilityRole="progressbar"
+        accessibilityLabel="Đang mở sổ tiền"
+        accessibilityState={{ busy: true }}
+        style={[s.row, { justifyContent: 'center' }]}
+      >
+        <ActivityIndicator color={colors.primary} />
+        <Text style={s.muted}>Đang mở sổ tiền…</Text>
+      </View>
     </SafeAreaView>
   );
 }
@@ -706,21 +934,7 @@ export function ConfirmationDialog(
   message: string,
   danger = false,
 ): Promise<boolean> {
-  return new Promise((resolve) =>
-    Alert.alert(
-      title,
-      message,
-      [
-        { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
-        {
-          text: 'Xác nhận',
-          style: danger ? 'destructive' : 'default',
-          onPress: () => resolve(true),
-        },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    ),
-  );
+  return requestConfirmation(title, message, danger);
 }
 export const TransactionRow = memo(function TransactionRow({
   transaction: t,
@@ -729,15 +943,17 @@ export const TransactionRow = memo(function TransactionRow({
   transaction: Transaction;
   index: TransactionListIndex;
 }) {
+  const { stack } = useResponsiveLayout();
   const color =
     t.type === 'expense'
       ? colors.expense
       : t.type === 'income'
         ? colors.income
-        : colors.muted;
+        : colors.transfer;
   const tags = transactionCategoryTags(t);
   const category = index.categories.get(t.category_id ?? '');
   const itemCount = index.itemCounts.get(t.id) ?? 0;
+  const thirdPartyCase = index.thirdPartyReportCases.get(t.id);
   const categoryName = (id: string | null) =>
     index.categoryNames.get(id ?? '') ?? '';
   const name = (id: string | null) => index.accountNames.get(id ?? '') ?? '';
@@ -746,64 +962,100 @@ export const TransactionRow = memo(function TransactionRow({
       accessibilityRole="button"
       accessibilityLabel={`${typeNames[t.type]}: ${t.title}`}
       onPress={() =>
-        router.push({ pathname: '/transaction/[id]', params: { id: t.id } })
+        router.push(
+          thirdPartyCase
+            ? { pathname: '/third-party/[id]', params: { id: thirdPartyCase } }
+            : { pathname: '/transaction/[id]', params: { id: t.id } },
+        )
       }
-      style={{
-        paddingVertical: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-      }}
+      style={({ pressed }) => ({
+        padding: spacing.compact,
+        marginBottom: spacing.sm,
+        backgroundColor: colors.card,
+        borderRadius: radius.card,
+        ...elevation.card,
+        opacity: pressed ? 0.7 : 1,
+      })}
     >
-      <View style={s.row}>
+      <View style={[s.row, { alignItems: 'flex-start' }]}>
         <View
           style={{
-            width: 42,
-            height: 42,
-            borderRadius: 15,
+            width: 38,
+            height: 38,
+            borderRadius: radius.icon,
             backgroundColor:
-              t.type === 'expense' ? colors.expenseLight : colors.light,
+              t.type === 'expense'
+                ? colors.expenseLight
+                : t.type === 'income'
+                  ? colors.incomeLight
+                  : colors.transferLight,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
           <Icon
+            size={20}
             color={color}
             name={
-              t.type === 'transfer'
-                ? 'swap-horizontal-outline'
-                : (category?.icon ?? 'receipt-outline')
+              thirdPartyCase
+                ? 'people-outline'
+                : t.type === 'transfer'
+                  ? 'swap-horizontal-outline'
+                  : (category?.icon ?? 'receipt-outline')
             }
           />
         </View>
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={[s.text, { fontWeight: '600' }]} numberOfLines={1}>
-            {t.title}
-          </Text>
-          <Text style={s.muted} numberOfLines={2}>
+        <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>
+          <View
+            style={{
+              flexDirection: stack ? 'column' : 'row',
+              alignItems: stack ? 'stretch' : 'flex-start',
+              gap: spacing.sm,
+            }}
+          >
+            <Text
+              style={[
+                s.text,
+                { fontWeight: '500', flex: stack ? undefined : 1, minWidth: 0 },
+              ]}
+            >
+              {t.title}
+            </Text>
+            <Amount
+              value={t.type === 'expense' ? -t.amount : t.amount}
+              style={{
+                color,
+                fontSize: 16,
+                lineHeight: 24,
+                maxWidth: stack ? '100%' : '54%',
+                alignSelf: 'flex-end',
+              }}
+            />
+          </View>
+          <Text style={[s.muted, { fontSize: 12, lineHeight: 18 }]}>
             {t.type === 'transfer'
               ? `${name(t.source_account_id)} → ${name(t.destination_account_id)}`
-              : `${name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map(categoryName).join(' · ') : itemCount ? `${itemCount} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryName(category?.id ?? null)}`}
+              : `${thirdPartyCase ? 'Thu chi hộ · Quyết toán' : name(t.source_account_id ?? t.destination_account_id)} · ${tags.length ? tags.map(categoryName).join(' · ') : itemCount ? `${itemCount} ${t.category_split === 1 ? 'danh mục' : 'mục chi'}` : categoryName(category?.id ?? null)}`}
           </Text>
-          <TagBadges transaction={t} tags={index.tags} />
-        </View>
-        <View style={{ alignItems: 'flex-end', maxWidth: '46%' }}>
-          <Amount
-            value={t.type === 'expense' ? -t.amount : t.amount}
-            style={{ color, fontSize: 14 }}
-          />
-          {t.exclude_from_balance === 1 && (
-            <Text style={{ fontSize: 11, color: colors.primary }}>
-              Không tính số dư
+          <View style={[s.between, { gap: spacing.sm }]}>
+            {t.exclude_from_balance === 1 && (
+              <Text style={[typography.caption, { color: colors.primary }]}>
+                Không tính số dư
+              </Text>
+            )}
+            <Text
+              style={[
+                typography.caption,
+                { color: colors.muted, marginLeft: 'auto' },
+              ]}
+            >
+              {new Date(t.occurred_at).toLocaleTimeString('vi-VN', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
             </Text>
-          )}
-          <Text style={{ fontSize: 11, color: colors.muted }}>
-            {t.type === 'transfer'
-              ? 'Nội bộ'
-              : new Date(t.occurred_at).toLocaleTimeString('vi-VN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-          </Text>
+          </View>
+          <TagBadges transaction={t} tags={index.tags} />
         </View>
       </View>
     </Pressable>

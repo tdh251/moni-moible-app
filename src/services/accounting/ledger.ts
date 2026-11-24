@@ -1,4 +1,10 @@
 import { loanCashFlows, validateLoans } from '../loans.ts';
+import { purchaseCashFlows, validatePurchases } from '../purchases.ts';
+import {
+  personalReportTransactions,
+  thirdPartyCashFlows,
+  validateThirdPartyLedger,
+} from '../third-party.ts';
 import { transactionTagIds, validateTags } from '../tags.ts';
 import {
   itemCategoryIds,
@@ -239,7 +245,12 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
     money(a.opening_balance, true);
     result[a.id] = a.opening_balance;
   }
-  const sorted = [...ledger.transactions, ...loanCashFlows(ledger)].sort(
+  const sorted = [
+    ...ledger.transactions,
+    ...loanCashFlows(ledger),
+    ...purchaseCashFlows(ledger),
+    ...thirdPartyCashFlows(ledger),
+  ].sort(
     (a, b) =>
       a.occurred_at.localeCompare(b.occurred_at) ||
       a.created_at.localeCompare(b.created_at) ||
@@ -265,6 +276,8 @@ export function accountBalances(ledger: Ledger): Record<string, number> {
   return result;
 }
 export function validateLedger(ledger: Ledger): void {
+  validateThirdPartyLedger(ledger);
+  validatePurchases(ledger);
   validateLoans(ledger);
   validateTags(ledger.tags ?? []);
   const hierarchyError = categoryHierarchyError(ledger.categories);
@@ -287,6 +300,8 @@ export function validateLedger(ledger: Ledger): void {
   let lifetimeExpense = 0;
   for (const t of ledger.transactions) {
     validateTransaction(t, grouped.get(t.id) ?? [], ledger, false, lookup);
+  }
+  for (const t of personalReportTransactions(ledger)) {
     // Bound gross reports as well as account balances to safe integer VND.
     if (t.type === 'income') lifetimeIncome = safeAdd(lifetimeIncome, t.amount);
     if (t.type === 'expense')
@@ -409,7 +424,7 @@ export function filterTransactions(
       )
       .map((item) => item.transaction_id),
   );
-  return ledger.transactions
+  return personalReportTransactions(ledger)
     .filter((t) => {
       const date = new Date(t.occurred_at);
       return (

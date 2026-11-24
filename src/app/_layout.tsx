@@ -7,6 +7,7 @@ import { EmptyState, PrimaryButton, ScreenContainer } from '../components/ui';
 import { colors } from '../theme';
 import { MotionProvider, useReducedMotionPreference } from '../hooks/motion';
 import { motion } from '../theme/motion';
+import { ConfirmationProvider } from '../components/ui/ConfirmationProvider';
 export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
   return (
     <ScreenContainer title={APP_NAME}>
@@ -23,9 +24,11 @@ export default function RootLayout() {
     <MotionProvider>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <FinanceProvider>
-          <RootNavigator />
-        </FinanceProvider>
+        <ConfirmationProvider>
+          <FinanceProvider>
+            <RootNavigator />
+          </FinanceProvider>
+        </ConfirmationProvider>
       </SafeAreaProvider>
     </MotionProvider>
   );

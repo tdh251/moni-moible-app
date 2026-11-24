@@ -9,6 +9,17 @@ import {
   loanMonthlyPayment,
 } from '../src/services/loans.ts';
 import {
+  purchaseOutstanding,
+  purchaseBalances,
+  totalPurchaseOutstanding,
+  purchaseCashFlows,
+} from '../src/services/purchases.ts';
+import {
+  createDebtEntries,
+  debtTotals,
+  groupDebts,
+} from '../src/services/debts.ts';
+import {
   loanReminderDates,
   planLoanReminders,
 } from '../src/services/loan-reminders/plan.ts';
@@ -129,6 +140,414 @@ async function fixture(t, amount = 1000) {
   ]);
   return f;
 }
+function purchase(patch = {}) {
+  return {
+    id: `purchase-${++sequence}`,
+    title: 'Mua sách',
+    person: 'Minh',
+    amount: 300,
+    account_id: 'cash',
+    note: '',
+    due_at: null,
+    occurred_at: instant,
+    created_at: instant,
+    updated_at: instant,
+    ...patch,
+  };
+}
+function purchaseRefund(row, patch = {}) {
+  return {
+    id: `refund-${++sequence}`,
+    purchase_id: row.id,
+    amount: 100,
+    account_id: 'bank',
+    note: '',
+    occurred_at: instant,
+    created_at: instant,
+    ...patch,
+  };
+}
+
+test('debts combine lending and purchases while keeping payables separate after partial repayments', async (t) => {
+  const { repo } = await fixture(t, 5000);
+  const lent = loan({
+    id: 'shared-id',
+    lender: ' Minh ',
+    direction: 'lend',
+    amount: 500,
+    account_id: 'cash',
+  });
+  const bought = purchase({ id: 'shared-id', person: 'minh', amount: 300 });
+  const borrowed = loan({
+    lender: 'Minh',
+    amount: 400,
+    costs_json: JSON.stringify([{ id: 'interest', name: 'Lãi', amount: 40 }]),
+  });
+  await repo.addLoan(lent);
+  await repo.savePurchase(bought);
+  await repo.addLoan(borrowed);
+  await repo.repayLoan(payment(lent.id, { amount: 100 }));
+  await repo.refundPurchase(purchaseRefund(bought, { amount: 50 }));
+  await repo.repayLoan(payment(borrowed.id, { amount: 100 }));
+  const snapshot = await repo.snapshot();
+  const before = JSON.stringify(snapshot);
+  const entries = createDebtEntries(snapshot);
+  assert.equal(new Set(entries.map((entry) => entry.key)).size, 3);
+  assert.deepEqual(debtTotals(entries), {
+    receivable: 650,
+    payable: 340,
+    lend: 400,
+    borrow: 340,
+    purchase: 250,
+  });
+  const filters = { side: 'receivable', kind: '', status: 'open', search: '' };
+  const groups = groupDebts(entries, filters);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].remaining, 650);
+  assert.equal(groups[0].data.length, 2);
+  assert.equal(
+    groupDebts(entries, { ...filters, side: 'payable' })[0].remaining,
+    340,
+  );
+  const summary = statistics(snapshot, {
+    ...filters,
+    period: 'year',
+    date: instant,
+  });
+  assert.equal(summary.income, 0);
+  assert.equal(summary.expense, 0);
+  assert.equal(JSON.stringify(snapshot), before);
+});
+
+test('debt filters distinguish settled purchases, search notes and sort newest records first', () => {
+  const older = purchase({
+    id: 'older',
+    person: 'Minh',
+    note: 'Quà sinh nhật',
+  });
+  const newer = purchase({
+    id: 'newer',
+    person: 'MINH',
+    occurred_at: '2026-10-11T05:00:00.000Z',
+  });
+  const settled = purchase({ id: 'settled', person: 'Lan' });
+  const entries = createDebtEntries({
+    accounts: [],
+    categories: [],
+    transactions: [],
+    items: [],
+    purchases: [older, newer, settled],
+    purchaseRefunds: [purchaseRefund(settled, { amount: settled.amount })],
+  });
+  const filters = {
+    side: 'receivable',
+    kind: 'purchase',
+    status: 'open',
+    search: '',
+  };
+  assert.deepEqual(
+    groupDebts(entries, filters)[0].data.map((entry) => entry.id),
+    ['newer', 'older'],
+  );
+  assert.equal(
+    groupDebts(entries, { ...filters, search: '  SINH NHẬT  ' })[0].data[0].id,
+    'older',
+  );
+  assert.equal(
+    groupDebts(entries, { ...filters, status: 'settled' })[0].data[0].id,
+    'settled',
+  );
+  assert.equal(groupDebts(entries, { ...filters, status: '' }).length, 2);
+  assert.deepEqual(groupDebts(entries, { ...filters, kind: 'lend' }), []);
+  assert.deepEqual(groupDebts(entries, { ...filters, search: 'không có' }), []);
+});
+
+test('debt view supports old ledgers without purchase collections', () => {
+  const entries = createDebtEntries({
+    accounts: [],
+    categories: [],
+    transactions: [],
+    items: [],
+    loans: [loan({ amount: 500 })],
+  });
+  assert.equal(entries[0].side, 'payable');
+  assert.deepEqual(debtTotals(entries), {
+    receivable: 0,
+    payable: 500,
+    lend: 0,
+    borrow: 500,
+    purchase: 0,
+  });
+});
+
+test('purchase and partial refunds change wallets without changing personal reports', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase();
+  await repo.savePurchase(row);
+  let snapshot = await repo.snapshot();
+  assert.deepEqual(accountBalances(snapshot), { cash: 700, bank: 100 });
+  assert.equal(totalPurchaseOutstanding(snapshot), 300);
+  await repo.refundPurchase(purchaseRefund(row));
+  snapshot = await repo.snapshot();
+  assert.deepEqual(accountBalances(snapshot), { cash: 700, bank: 200 });
+  assert.equal(purchaseOutstanding(row, snapshot.purchaseRefunds), 200);
+  assert.equal(purchaseBalances(snapshot).get(row.id), 200);
+  await repo.refundPurchase(
+    purchaseRefund(row, { amount: 200, account_id: 'cash' }),
+  );
+  snapshot = await repo.snapshot();
+  assert.deepEqual(accountBalances(snapshot), { cash: 900, bank: 200 });
+  assert.equal(totalPurchaseOutstanding(snapshot), 0);
+  const summary = statistics(snapshot, filters);
+  assert.equal(summary.income, 0);
+  assert.equal(summary.expense, 0);
+  assert.deepEqual(summary.categories, {});
+  assert.deepEqual(summary.tags, {});
+  assert.equal(purchaseCashFlows(snapshot).length, 3);
+  const csv = transactionsCsv(snapshot);
+  assert.match(csv, /Mua hộ/);
+  assert.match(csv, /Hoàn tiền mua hộ/);
+});
+
+test('purchase refunds are bounded and serialized, including duplicate submissions', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase();
+  await repo.savePurchase(row);
+  const results = await Promise.allSettled([
+    repo.refundPurchase(purchaseRefund(row, { amount: 200 })),
+    repo.refundPurchase(purchaseRefund(row, { amount: 200 })),
+  ]);
+  assert.equal(
+    results.filter((result) => result.status === 'fulfilled').length,
+    1,
+  );
+  let snapshot = await repo.snapshot();
+  assert.equal(snapshot.purchaseRefunds.length, 1);
+  assert.equal(totalPurchaseOutstanding(snapshot), 100);
+  const refund = purchaseRefund(row, { amount: 50 });
+  await repo.refundPurchase(refund);
+  await assert.rejects(repo.refundPurchase(refund), /trùng/);
+  snapshot = await repo.snapshot();
+  assert.equal(totalPurchaseOutstanding(snapshot), 50);
+  await assert.rejects(repo.savePurchase(row), /đã thay đổi/);
+});
+
+test('purchase validation rejects invalid money, people, dates and missing accounts atomically', async (t) => {
+  const { repo } = await fixture(t);
+  for (const patch of [
+    { amount: 0 },
+    { amount: -1 },
+    { amount: 0.5 },
+    { amount: Number.MAX_SAFE_INTEGER + 1 },
+    { person: ' ' },
+    { title: '' },
+    { account_id: 'missing' },
+    { occurred_at: '2026-02-30T00:00:00.000Z' },
+    { due_at: '2026-10-09T00:00:00.000Z' },
+    { note: 'a'.repeat(4001) },
+  ])
+    await assert.rejects(repo.savePurchase(purchase(patch)));
+  const row = purchase();
+  await repo.savePurchase(row);
+  for (const patch of [
+    { amount: 301 },
+    { amount: 0 },
+    { amount: 0.5 },
+    { account_id: 'missing' },
+    { purchase_id: 'missing' },
+    { occurred_at: '2026-10-09T00:00:00.000Z' },
+    { note: 'a'.repeat(4001) },
+  ])
+    await assert.rejects(repo.refundPurchase(purchaseRefund(row, patch)));
+  const snapshot = await repo.snapshot();
+  assert.equal(snapshot.purchases.length, 1);
+  assert.equal(snapshot.purchaseRefunds.length, 0);
+  assert.deepEqual(accountBalances(snapshot), { cash: 700, bank: 100 });
+});
+
+test('purchases respect historical wallet balances and archived accounts', async (t) => {
+  const { repo } = await fixture(t);
+  await assert.rejects(
+    repo.savePurchase(purchase({ amount: 1001 })),
+    /Không đủ số dư/,
+  );
+  const row = purchase({ account_id: 'bank', amount: 100 });
+  await repo.savePurchase(row);
+  await repo.archiveAccount('bank', true);
+  await assert.rejects(
+    repo.savePurchase(purchase({ account_id: 'bank', amount: 10 })),
+    /hoạt động/,
+  );
+  await assert.rejects(repo.refundPurchase(purchaseRefund(row)), /hoạt động/);
+  await repo.savePurchase({ ...row, title: 'Sửa nội dung' }, true);
+  await repo.refundPurchase(purchaseRefund(row, { account_id: 'cash' }));
+  assert.equal(totalPurchaseOutstanding(await repo.snapshot()), 0);
+});
+
+test('editing a purchase preserves refunds and validates the entire history', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase();
+  await repo.savePurchase(row);
+  await repo.refundPurchase(purchaseRefund(row, { amount: 200 }));
+  await assert.rejects(
+    repo.savePurchase({ ...row, amount: 199 }, true),
+    /vượt quá/,
+  );
+  await assert.rejects(
+    repo.savePurchase(
+      { ...row, occurred_at: '2026-10-11T00:00:00.000Z' },
+      true,
+    ),
+    /Ngày hoàn/,
+  );
+  await repo.savePurchase(
+    { ...row, title: '  Đồ ăn  ', person: '  Lan  ', amount: 400 },
+    true,
+  );
+  const snapshot = await repo.snapshot();
+  assert.equal(snapshot.purchases[0].title, 'Đồ ăn');
+  assert.equal(snapshot.purchases[0].person, 'Lan');
+  assert.equal(snapshot.purchaseRefunds.length, 1);
+  assert.equal(totalPurchaseOutstanding(snapshot), 200);
+  assert.deepEqual(accountBalances(snapshot), { cash: 600, bank: 300 });
+});
+
+test('deleting purchase refunds and purchases rolls back if received money has been spent', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase();
+  const refund = purchaseRefund(row, { amount: 300 });
+  await repo.savePurchase(row);
+  await repo.refundPurchase(refund);
+  const spent = draft('expense', {
+    source_account_id: 'bank',
+    amount: 350,
+    occurred_at: '2026-10-11T00:00:00.000Z',
+  });
+  await repo.saveTransaction(spent, false);
+  await assert.rejects(repo.deletePurchaseRefund(refund.id), /Không đủ số dư/);
+  await assert.rejects(repo.deletePurchase(row.id), /Không đủ số dư/);
+  assert.equal((await repo.snapshot()).purchaseRefunds.length, 1);
+  await repo.deleteTransaction(spent.id);
+  await repo.deletePurchaseRefund(refund.id);
+  assert.equal(totalPurchaseOutstanding(await repo.snapshot()), 300);
+  await repo.refundPurchase(purchaseRefund(row));
+  await repo.deletePurchase(row.id);
+  const snapshot = await repo.snapshot();
+  assert.equal(snapshot.purchases.length, 0);
+  assert.equal(snapshot.purchaseRefunds.length, 0);
+  assert.deepEqual(accountBalances(snapshot), { cash: 1000, bank: 100 });
+});
+
+test('purchase backups restore all flows and reject malformed records without data loss', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase({ due_at: '2026-10-20T23:59:59.999Z' });
+  await repo.savePurchase(row);
+  await repo.refundPurchase(purchaseRefund(row));
+  const backup = await repo.backup();
+  assert.equal(backup.version, 22);
+  const original = await repo.snapshot();
+  await repo.reset();
+  assert.equal((await repo.snapshot()).purchases.length, 0);
+  await repo.restore(JSON.parse(JSON.stringify(backup)));
+  assert.deepEqual(await repo.snapshot(), original);
+  for (const change of [
+    (b) => {
+      b.version = 20;
+    },
+    (b) => {
+      b.data.purchases[0].person = null;
+    },
+    (b) => {
+      b.data.purchases[0].amount = '300';
+    },
+    (b) => {
+      b.data.purchaseRefunds[0].purchase_id = 'missing';
+    },
+    (b) => {
+      b.data.purchaseRefunds[0].amount = 301;
+    },
+    (b) => {
+      b.data.onboarded = false;
+      b.data.accounts = [];
+    },
+  ]) {
+    const invalid = structuredClone(backup);
+    change(invalid);
+    await assert.rejects(async () => repo.restore(invalid));
+    assert.deepEqual(await repo.snapshot(), original);
+  }
+});
+
+test('migration from version 20 preserves existing transactions and legacy backups have empty purchases', async (t) => {
+  const { repo, db } = await fixture(t);
+  const tx = draft('expense');
+  await repo.saveTransaction(tx, false);
+  const oldBackup = await repo.backup();
+  oldBackup.version = 20;
+  delete oldBackup.data.purchases;
+  delete oldBackup.data.purchaseRefunds;
+  db.exec(
+    'DROP TABLE purchase_refunds; DROP TABLE purchases; PRAGMA user_version=20;',
+  );
+  await repo.initialize();
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 22);
+  assert.equal((await repo.snapshot()).transactions[0].id, tx.id);
+  await repo.restore(oldBackup);
+  const snapshot = await repo.snapshot();
+  assert.deepEqual(snapshot.purchases, []);
+  assert.deepEqual(snapshot.purchaseRefunds, []);
+  assert.deepEqual(accountBalances(snapshot), { cash: 900, bank: 100 });
+});
+
+test('unrecognized purchase backup fields cannot suppress or redirect wallet movements', async (t) => {
+  const { repo } = await fixture(t);
+  const row = purchase({ amount: 900 });
+  await repo.savePurchase(row);
+  await repo.refundPurchase(purchaseRefund(row));
+  const backup = await repo.backup();
+  backup.data.purchases[0].exclude_from_balance = 1;
+  backup.data.purchases[0].source_account_id = 'bank';
+  backup.data.purchaseRefunds[0].exclude_from_balance = 1;
+  backup.data.purchaseRefunds[0].destination_account_id = 'cash';
+  const checked = validateBackup(backup);
+  assert.deepEqual(accountBalances(checked.data), { cash: 100, bank: 200 });
+  await repo.restore(backup);
+  const original = await repo.snapshot();
+  assert.deepEqual(accountBalances(original), { cash: 100, bank: 200 });
+  const invalid = structuredClone(backup);
+  const { items, ...transaction } = draft('expense', {
+    amount: 200,
+    occurred_at: '2026-10-11T00:00:00.000Z',
+  });
+  invalid.data.transactions.push(transaction);
+  await assert.rejects(async () => repo.restore(invalid), /Không đủ số dư/);
+  assert.deepEqual(await repo.snapshot(), original);
+});
+
+test('purchase and refund records survive closing and reopening SQLite', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'moni-purchases-'));
+  const path = join(directory, 'finance.db');
+  let f = connect(path);
+  try {
+    await f.repo.initialize();
+    await f.repo.onboard([makeAccount('cash', 'Tiền mặt', 'cash', 1000)]);
+    const row = purchase();
+    await f.repo.savePurchase(row);
+    await f.repo.refundPurchase(purchaseRefund(row, { account_id: 'cash' }));
+    const before = await f.repo.snapshot();
+    f.db.close();
+    f = connect(path);
+    await f.repo.initialize();
+    assert.deepEqual(await f.repo.snapshot(), before);
+    assert.deepEqual(accountBalances(before), { cash: 800 });
+    assert.equal(totalPurchaseOutstanding(before), 200);
+  } finally {
+    f.db.close();
+    unlinkSync(path);
+    rmdirSync(directory);
+  }
+});
+
 test('recent transactions use three local calendar days and include every transaction in those days', () => {
   const now = new Date(2026, 10, 15, 15, 30);
   const today = Array.from({ length: 9 }, (_, index) =>
@@ -424,7 +843,7 @@ test('draft backup roundtrip includes incomplete fields and rejects malformed or
   copy.values.amount = '';
   await repo.saveTransactionDraft(copy);
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   assert.deepEqual(parseBackup(JSON.stringify(backup)), backup);
   for (const change of [
     (value) => {
@@ -481,7 +900,7 @@ test('draft migration preserves v19 finances and drafts survive SQLite close/reo
     const before = await f.repo.snapshot();
     f.db.exec('DROP TABLE transaction_drafts; PRAGMA user_version=19');
     await f.repo.initialize();
-    assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
     assert.deepEqual(await f.repo.snapshot(), before);
     await f.repo.duplicateTransaction(original.id, 'persistent-copy');
     const saved = await f.repo.snapshot();
@@ -580,7 +999,7 @@ test('deleting categories removes unused ones and archives transaction or receip
 test('fresh migrations are repeatable, FK enabled, cash uniqueness and constraints work', async (t) => {
   const { repo, db } = await fixture(t);
   await repo.initialize();
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.throws(() =>
     db
@@ -1374,7 +1793,7 @@ test('current backup and CSV retain custom fields, and malformed adjustments can
   const d = adjustedDraft();
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1445,7 +1864,7 @@ test('migration v1 to v2 preserves existing accounts, transactions and onboardin
   assert.equal(data.transactions[0].id, 'old-tx');
   assert.equal(data.transactions[0].adjustments_json, '[]');
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
 });
 
 test('fixed VND parser accepts signed integers and rejects unsafe or fractional input', () => {
@@ -1602,7 +2021,7 @@ test('v3 backup preserves mixed adjustments, reads v2, and rejects fixed lines m
   ]);
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   const parsed = parseBackup(JSON.stringify(backup));
   await repo.reset();
   await repo.restore(parsed);
@@ -1815,7 +2234,7 @@ test('exclusion persists in backups and CSV; invalid flags and old versions cann
   const d = draft('expense', { exclude_from_balance: 1, amount: 5000 });
   await repo.saveTransaction(d, false);
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.reset();
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), backup.data);
@@ -1884,7 +2303,7 @@ test('schema v2 upgrades safely with a constrained default inclusion flag', asyn
   const data = await f.repo.snapshot();
   assert.equal(data.transactions[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 900);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.throws(() =>
     f.db.prepare('UPDATE transactions SET exclude_from_balance=2').run(),
   );
@@ -1904,7 +2323,7 @@ test('schema v3 migrates flat categories without changing stored transactions', 
   assert.equal(data.categories.length, 1);
   assert.equal(data.categories[0].id, 'legacy');
   assert.equal(data.categories[0].parent_id, null);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   await f.repo.initialize();
   assert.deepEqual(await f.repo.snapshot(), data);
 });
@@ -2529,7 +2948,7 @@ test('tag backup and CSV roundtrip preserve definitions and assignments and reje
   );
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   assert.ok(transactionsCsv(before).includes('Khuyến mãi | Shopee'));
@@ -2837,7 +3256,7 @@ test('reminder time migrates from v18, validates atomically and roundtrips throu
   assert.equal(saved.loans[0].payment_time_minutes, 1115);
   assert.deepEqual(accountBalances(saved), accountBalances(before));
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   assert.throws(() => validateBackup({ ...backup, version: 18 }));
   const malformed = structuredClone(backup);
   malformed.data.loans[0].payment_time_minutes = 1440;
@@ -2904,7 +3323,7 @@ test('monthly reminder settings validate atomically, preserve balances and survi
   assert.equal(saved.loans[0].payment_day, 31);
   assert.deepEqual(accountBalances(saved), accountBalances(before));
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   assert.throws(() => validateBackup({ ...backup, version: 17 }));
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), saved);
@@ -2980,7 +3399,7 @@ test('v16 migration preserves borrowed balances and defaults existing loans to b
   );
   await repo.initialize();
   assert.deepEqual(await repo.snapshot(), before);
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 22);
   const legacy = await repo.backup();
   legacy.version = 16;
   delete legacy.data.loans[0].direction;
@@ -3001,7 +3420,7 @@ test('lending supports historical records, independent debt totals, collection d
   assert.equal(totalLoanOutstanding(data), 500);
   assert.equal(totalLoanOutstanding(data, 'lend'), 300);
   const backup = validateBackup(await repo.backup());
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   assert.throws(() => validateBackup({ ...backup, version: 16 }));
   const other = await fixture(t);
   await other.repo.restore(backup);
@@ -3171,7 +3590,7 @@ test('loan backups roundtrip, reject malformed or disguised old-version debts wi
   await repo.repayLoan(payment(borrowed.id));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const mutate of [
@@ -3228,7 +3647,7 @@ test('schema v8 migration adds loan tables without changing existing accounts, t
   f.db.prepare("INSERT INTO settings VALUES ('onboarded','true')").run();
   await f.repo.initialize();
   let data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.deepEqual(data.loans, []);
   assert.deepEqual(data.loanPayments, []);
   assert.equal(accountBalances(data).cash, 1000);
@@ -3347,7 +3766,7 @@ test('backup includes term and costs, rejects version downgrades and reads old p
   );
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -3402,7 +3821,7 @@ test('schema v9 migration preserves existing loans and repayments with no term a
     );
   await f.repo.initialize();
   const data = await f.repo.snapshot();
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.equal(data.loans[0].due_at, null);
   assert.equal(data.loans[0].costs_json, '[]');
   assert.equal(data.loans[0].note, 'Ghi chú cũ');
@@ -3562,7 +3981,7 @@ test('v10 loan migration keeps original cash movements, includes fees in debt an
   assert.equal(data.loans[0].exclude_from_balance, 0);
   assert.equal(accountBalances(data).cash, 1000);
   assert.equal(totalLoanOutstanding(data), 170);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.throws(() =>
     f.db.prepare('UPDATE loans SET exclude_from_balance=2').run(),
   );
@@ -3632,7 +4051,7 @@ test('settlement fees persist in backups and invalid or legacy fee data cannot r
   await repo.repayLoan(payment(borrowed.id, { amount: 500, fee_amount: 50 }));
   const before = await repo.snapshot();
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   for (const change of [
@@ -3676,7 +4095,7 @@ test('schema v11 migration defaults repayment fee to zero without changing debt 
   assert.equal(data.loanPayments[0].fee_amount, 0);
   assert.equal(accountBalances(data).cash, 1400);
   assert.equal(totalLoanOutstanding(data), 400);
-  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 20);
+  assert.equal(f.db.prepare('PRAGMA user_version').get().user_version, 22);
   assert.throws(() =>
     f.db.prepare('UPDATE loan_payments SET fee_amount=-1').run(),
   );
@@ -3853,7 +4272,7 @@ test('item tags survive backup and CSV, reject legacy versions and reset with th
   await repo.saveTransaction(receipt, false);
   const backup = await repo.backup();
   const before = await repo.snapshot();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   await repo.restore(parseBackup(JSON.stringify(backup)));
   assert.deepEqual(await repo.snapshot(), before);
   const csv = transactionsCsv(before);
@@ -4087,7 +4506,7 @@ test('legacy backups flatten category levels and choose the first label, while m
     legacy.data.categories.map((c) => [c.id, c.name]),
   );
   const backup = await repo.backup();
-  assert.equal(backup.version, 20);
+  assert.equal(backup.version, 22);
   assert.deepEqual(parseBackup(JSON.stringify(backup)), backup);
   backup.data.transactions[0].category_ids_json =
     '["default-expense-0","default-expense-1"]';

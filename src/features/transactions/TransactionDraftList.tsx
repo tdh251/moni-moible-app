@@ -7,11 +7,11 @@ import {
   EmptyState,
   s,
 } from '../../components/ui';
+import { StatusBadge } from '../../components/ui/primitives';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { MotionPressable } from '../../components/ui/MotionPressable';
 import { useFinance } from '../../hooks/finance';
 import { typeNames } from '../../utils/format';
-import { colors } from '../../theme';
 import type { SavedTransactionDraft } from '../../types/transaction-draft';
 
 export function TransactionDraftList({
@@ -53,9 +53,10 @@ export function TransactionDraftList({
                 })
               }
             >
-              <Text style={[s.muted, { color: colors.primary }]}>
-                Bản nháp · {typeNames[draft.values.type]}
-              </Text>
+              <StatusBadge
+                label={`Bản nháp · ${typeNames[draft.values.type]}`}
+                tone="brand"
+              />
               <Text style={s.heading} numberOfLines={2}>
                 {draft.values.title.trim() || 'Trống'}
               </Text>

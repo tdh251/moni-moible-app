@@ -11,7 +11,6 @@ import {
   NavigationRow,
   PrimaryButton,
   ScreenContainer,
-  SecondaryButton,
   s,
 } from '../../components/ui';
 import {
@@ -24,6 +23,7 @@ import { usePreferences } from '../../stores/preferences';
 import { pickBackup, shareFile } from '../../services/backup/files';
 import { transactionsCsv } from '../../services/export/csv';
 import { colors } from '../../theme';
+import { Disclosure, SectionHeader } from '../../components/ui/primitives';
 import { APP_NAME, APP_DISPLAY_NAME } from '../../constants/app';
 export default function Settings() {
   const { repository, mutate, busy } = useFinance();
@@ -71,7 +71,7 @@ export default function Settings() {
     if (
       await ConfirmationDialog(
         'Thay thế toàn bộ sổ tiền?',
-        `Bản sao lưu ngày ${new Date(value.exported_at).toLocaleString('vi-VN')} có ${value.data.accounts.length} tài khoản, ${value.data.transactions.length} giao dịch. Toàn bộ dữ liệu tài chính hiện tại sẽ được thay thế. Hãy xuất bản sao lưu trước nếu cần.`,
+        `Bản sao lưu ngày ${new Date(value.exported_at).toLocaleString('vi-VN')} có ${value.data.accounts.length} tài khoản, ${value.data.transactions.length} giao dịch, ${value.data.purchases?.length ?? 0} khoản mua hộ và ${value.data.thirdPartyCases?.length ?? 0} hồ sơ thu chi hộ (${value.data.thirdPartyEntries?.length ?? 0} bút toán). Toàn bộ dữ liệu tài chính hiện tại sẽ được thay thế. Hãy xuất bản sao lưu trước nếu cần.`,
         true,
       )
     ) {
@@ -98,20 +98,26 @@ export default function Settings() {
     }
   };
   return (
-    <ScreenContainer
-      tabScreen
-      title="Cá nhân"
-      subtitle="Một sổ tiền riêng, theo cách của bạn."
-    >
-      <AppCard>
-        <View style={s.row}>
-          <Icon name="wallet-outline" size={32} />
-          <View>
-            <Text style={s.heading}>{APP_NAME}</Text>
-            <Text style={s.muted}>Tài chính cá nhân · lưu trên thiết bị</Text>
-          </View>
+    <ScreenContainer tabScreen title="Cá nhân">
+      <View style={[s.row, { paddingVertical: 8 }]}>
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 16,
+            backgroundColor: colors.light,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="wallet-outline" size={26} />
         </View>
-      </AppCard>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.title}>{APP_NAME}</Text>
+          <Text style={s.muted}>Sổ tiền riêng trên thiết bị của bạn</Text>
+        </View>
+      </View>
+      <SectionHeader title="Tài chính" />
       <AppCard style={{ padding: 0, gap: 0 }}>
         <NavigationRow
           label="Tài khoản"
@@ -128,91 +134,72 @@ export default function Settings() {
         />
         <View style={s.divider} />
         <NavigationRow
-          label="Tags"
+          label="Tag"
           icon="pricetag-outline"
           disabled={disabled}
           onPress={() => router.push('/tags')}
         />
       </AppCard>
-      <Text style={s.heading}>Hiển thị</Text>
+      <SectionHeader title="Hiển thị & bảo mật" />
       <AppCard>
-        <View style={s.between}>
-          <View style={{ flex: 1 }}>
+        <View style={[s.row, { minHeight: 48 }]}>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
             <Text style={s.text}>Ẩn số tiền</Text>
-            <Text style={s.muted}>Che số dư và các giá trị tiền trên sổ.</Text>
+            <Text style={s.muted}>Che số dư và các giá trị tiền.</Text>
           </View>
           <Switch
             accessibilityLabel="Ẩn số tiền"
             value={hidden}
             disabled={disabled}
-            trackColor={{ true: colors.primary }}
+            trackColor={{ true: colors.primary, false: colors.border }}
             onValueChange={(value) =>
               void perform(() => savePreferences({ hidden: value }))
             }
           />
         </View>
         <View style={s.divider} />
-        <View style={s.between}>
-          <Text style={s.text}>Tiền tệ</Text>
-          <Text style={s.muted}>VND · Việt Nam đồng</Text>
-        </View>
-      </AppCard>
-      <Text style={s.heading}>Bảo mật</Text>
-      <AppCard>
-        <View style={s.between}>
-          <View style={{ flex: 1 }}>
+        <View style={[s.row, { minHeight: 48 }]}>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
             <Text style={s.text}>Khóa ứng dụng</Text>
-            <Text style={s.muted}>
-              Sinh trắc học hoặc mã khóa thiết bị. Khóa lại khi ứng dụng vào
-              nền.
-            </Text>
+            <Text style={s.muted}>Sinh trắc học hoặc mã khóa thiết bị.</Text>
           </View>
           <Switch
             accessibilityLabel="Khóa ứng dụng"
             value={biometric}
             disabled={disabled}
-            trackColor={{ true: colors.primary }}
+            trackColor={{ true: colors.primary, false: colors.border }}
             onValueChange={() => void perform(toggleLock)}
           />
         </View>
-        <Text style={s.muted}>
-          Khóa giao diện không mã hóa tệp SQLite. Bản sao lưu JSON chứa dữ liệu
-          rõ; hãy lưu ở nơi riêng tư.
-        </Text>
+        <Disclosure title="Thông tin bảo mật">
+          <Text style={s.muted}>
+            Khóa giao diện không mã hóa tệp SQLite. Bản sao lưu JSON chứa dữ
+            liệu rõ; hãy lưu ở nơi riêng tư. Ứng dụng khóa lại khi vào nền.
+          </Text>
+        </Disclosure>
+        <View style={s.between}>
+          <Text style={s.muted}>Tiền tệ</Text>
+          <Text style={s.text}>VND · Việt Nam đồng</Text>
+        </View>
       </AppCard>
-      <Text style={s.heading}>Sao lưu & khôi phục</Text>
-      <AppCard>
-        <Text style={s.muted}>
-          Sao lưu toàn bộ tài khoản, danh mục, tag, giao dịch, khoản vay và bản
-          nháp. Hỗ trợ đọc các bản sao lưu cũ của {APP_NAME}.
-        </Text>
-        <SecondaryButton
+      <SectionHeader title="Dữ liệu" />
+      <AppCard style={{ padding: 0, gap: 0 }}>
+        <NavigationRow
           label="Xuất bản sao lưu"
+          description="Toàn bộ sổ tiền, công nợ và thu chi hộ"
           icon="cloud-download-outline"
           disabled={disabled}
           onPress={() => void perform(backup)}
         />
-        <SecondaryButton
+        <View style={s.divider} />
+        <NavigationRow
           label="Nhập bản sao lưu"
           icon="document-outline"
           disabled={disabled}
           onPress={() => void perform(restore)}
         />
-      </AppCard>
-      <Text style={s.heading}>Đồng bộ Cloud</Text>
-      <AppCard>
-        <View style={s.row}>
-          <Icon name="cloud-offline-outline" />
-          <Text style={s.heading}>Chưa thiết lập</Text>
-        </View>
-        <Text style={s.muted}>
-          {APP_NAME} đang hoạt động ngoại tuyến. Supabase là tùy chọn cho giai
-          đoạn sau; hiện chưa có đăng nhập hoặc đồng bộ.
-        </Text>
-      </AppCard>
-      <Text style={s.heading}>Quản lý dữ liệu</Text>
-      <AppCard>
-        <SecondaryButton
+        <View style={s.divider} />
+        <NavigationRow
           label="Xuất giao dịch CSV"
           icon="download-outline"
           disabled={disabled}
@@ -225,8 +212,23 @@ export default function Settings() {
             )
           }
         />
-        <SecondaryButton
+      </AppCard>
+      <AppCard>
+        <View style={s.row}>
+          <Icon name="cloud-offline-outline" />
+          <View style={{ flex: 1 }}>
+            <Text style={s.heading}>Đồng bộ Cloud</Text>
+            <Text style={s.muted}>
+              Chưa thiết lập · Sổ tiền đang lưu trên thiết bị.
+            </Text>
+          </View>
+        </View>
+      </AppCard>
+      <SectionHeader title="Quản lý dữ liệu" />
+      <AppCard style={{ padding: 0, gap: 0 }}>
+        <NavigationRow
           label="Khôi phục danh mục mặc định"
+          icon="refresh-outline"
           disabled={disabled}
           onPress={() =>
             void perform(async () => {
@@ -240,19 +242,22 @@ export default function Settings() {
             })
           }
         />
-        <SecondaryButton
+        <View style={s.divider} />
+        <NavigationRow
           label="Xóa toàn bộ dữ liệu tài chính"
+          icon="trash-outline"
           danger
           disabled={disabled}
           onPress={() => setResetOpen(!resetOpen)}
         />
         {resetOpen && (
-          <>
+          <View style={{ padding: 16, gap: 12 }}>
             <Field
               label="Gõ XÓA TOÀN BỘ để tiếp tục"
               value={resetText}
               onChangeText={setResetText}
               autoCapitalize="characters"
+              editable={!disabled}
             />
             <PrimaryButton
               label="Xác nhận xóa toàn bộ"
@@ -260,21 +265,24 @@ export default function Settings() {
               disabled={disabled || resetText !== 'XÓA TOÀN BỘ'}
               onPress={() => void perform(reset)}
             />
-          </>
+          </View>
         )}
       </AppCard>
-      <Text style={s.heading}>Thông tin ứng dụng</Text>
       <AppCard>
-        <Text style={s.text}>{APP_DISPLAY_NAME}</Text>
+        <Text style={s.heading}>{APP_DISPLAY_NAME}</Text>
         <Text style={s.muted}>
           Phiên bản {Constants.expoConfig?.version ?? '—'}
         </Text>
         <Text style={s.muted}>
-          Ghi thu chi, theo dõi tiền mặt và ngân hàng. Tối giản, rõ ràng và hoạt
+          Ghi thu chi, theo dõi tiền mặt và ngân hàng. Đơn giản, rõ ràng và hoạt
           động ngoại tuyến.
         </Text>
       </AppCard>
-      {working && <Text style={s.muted}>Đang xử lý…</Text>}
+      {working && (
+        <Text accessibilityLiveRegion="polite" style={s.muted}>
+          Đang xử lý…
+        </Text>
+      )}
     </ScreenContainer>
   );
 }

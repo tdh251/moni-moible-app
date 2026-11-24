@@ -9,6 +9,7 @@ import {
   s,
 } from '../../components/ui';
 import type { ReceiptAdjustment } from '../../types/finance';
+import { MoneyRow } from '../../components/ui/primitives';
 import { FinanceError } from '../../services/accounting/money';
 import {
   calculateReceipt,
@@ -153,23 +154,22 @@ export function ReceiptAdjustments({
       <AppCard>
         {summary ? (
           <>
-            <View style={s.between}>
-              <Text style={s.text}>Tạm tính</Text>
-              <Amount value={summary.subtotal} reveal />
-            </View>
+            <MoneyRow label="Tạm tính" value={summary.subtotal} reveal />
             {summary.lines.map((line) => (
-              <View key={line.id} style={s.between}>
-                <Text style={[s.text, { flex: 1 }]}>
-                  {adjustmentLabel(line)}
-                </Text>
-                <Amount value={line.amount} reveal />
-              </View>
+              <MoneyRow
+                key={line.id}
+                label={adjustmentLabel(line)}
+                value={line.amount}
+                reveal
+              />
             ))}
             <View style={s.divider} />
-            <View style={s.between}>
-              <Text style={s.heading}>Tổng thanh toán</Text>
-              <Amount value={summary.total} reveal />
-            </View>
+            <MoneyRow
+              label="Tổng thanh toán"
+              value={summary.total}
+              strong
+              reveal
+            />
             <Text style={s.muted}>
               Làm tròn từng điều chỉnh đến 1 VND. Chỉ trừ tài khoản một lần theo
               tổng thanh toán; thống kê danh mục được phân bổ tương ứng.

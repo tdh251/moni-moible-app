@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native';
 import type { Tag, Transaction } from '../../types/finance';
 import { transactionTagIds } from '../../services/tags';
+import { colors, radius, spacing, typography } from '../../theme';
 
 export function TagBadges({
   transaction,
@@ -21,12 +22,13 @@ export function TagBadges({
           <Text
             key={id}
             style={{
-              color: tag.color,
+              color: colors.text,
               backgroundColor: `${tag.color}18`,
-              borderRadius: 8,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-              fontSize: 12,
+              borderRadius: radius.small,
+              paddingVertical: spacing.xs,
+              paddingHorizontal: spacing.sm,
+              maxWidth: '100%',
+              ...typography.caption,
             }}
           >
             #{tag.name}

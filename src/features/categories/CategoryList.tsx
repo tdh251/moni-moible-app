@@ -140,8 +140,8 @@ function DraggableCategory({
         onLayout={onLayout}
         style={{
           transform: [{ translateY: dragging ? translation : offset }],
-          borderWidth: 2,
-          borderColor: dragging ? colors.primary : colors.border,
+          borderWidth: 1,
+          borderColor: dragging || selected ? colors.primary : colors.border,
           borderRadius: 16,
           backgroundColor: dragging || selected ? colors.light : colors.card,
           paddingHorizontal: 8,

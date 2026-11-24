@@ -22,8 +22,15 @@ import {
   IncomeExpenseChart,
 } from '../../features/statistics/Charts';
 import { colors } from '../../theme';
+import {
+  Disclosure,
+  MoneyRow,
+  SummaryCard,
+} from '../../components/ui/primitives';
+import { useResponsiveLayout } from '../../hooks/useResponsiveLayout';
 export default function Statistics() {
   const { data } = useFinance();
+  const { stack } = useResponsiveLayout();
   const filters = usePreferences((v) => v.reportFilters);
   const set = usePreferences((v) => v.setFilters);
   const [mode, setMode] = useState<CategoryType>('expense');
@@ -47,44 +54,58 @@ export default function Statistics() {
     <ScreenContainer
       tabScreen
       title="Thống kê"
-      subtitle="Hiểu dòng tiền, an tâm hơn mỗi ngày."
+      subtitle="Thu nhập và chi tiêu trong kỳ."
     >
       <AppCard>
         <PeriodFilter
           value={filters}
           onChange={(value) => set('reportFilters', value)}
         />
-        <AccountPicker
-          all
-          accounts={data.accounts}
-          value={filters.account}
-          onChange={(account) => set('reportFilters', { account })}
-        />
-        <TagPicker
-          filter
-          value={filters.tags ?? []}
-          onChange={(tags) => set('reportFilters', { tags })}
-        />
+        <Disclosure
+          title="Tài khoản & tag"
+          active={!!filters.account || !!filters.tags?.length}
+        >
+          <View style={{ gap: 12 }}>
+            <AccountPicker
+              all
+              variant="dropdown"
+              accounts={data.accounts}
+              value={filters.account}
+              onChange={(account) => set('reportFilters', { account })}
+            />
+            <TagPicker
+              filter
+              value={filters.tags ?? []}
+              onChange={(tags) => set('reportFilters', { tags })}
+            />
+          </View>
+        </Disclosure>
       </AppCard>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <AppCard style={{ flex: 1, padding: 15 }}>
-          <Text style={s.muted}>Thu nhập</Text>
-          <Amount value={summary.income} style={{ color: colors.income }} />
-        </AppCard>
-        <AppCard style={{ flex: 1, padding: 15 }}>
-          <Text style={s.muted}>Chi tiêu</Text>
-          <Amount value={summary.expense} style={{ color: colors.expense }} />
-        </AppCard>
+      <View style={{ flexDirection: stack ? 'column' : 'row', gap: 12 }}>
+        <SummaryCard
+          label="Thu nhập"
+          value={summary.income}
+          kind="income"
+          style={{ flex: stack ? undefined : 1 }}
+        />
+        <SummaryCard
+          label="Chi tiêu"
+          value={summary.expense}
+          kind="expense"
+          style={{ flex: stack ? undefined : 1 }}
+        />
       </View>
       <AppCard>
-        <View style={s.between}>
-          <Text style={s.text}>Chênh lệch thu − chi</Text>
-          <Amount
-            value={summary.net}
-            style={{ color: summary.net < 0 ? colors.expense : colors.primary }}
-          />
-        </View>
-        <Text style={s.muted}>Không tính số dư ban đầu và chuyển nội bộ.</Text>
+        <MoneyRow
+          label="Chênh lệch thu − chi"
+          value={summary.net}
+          strong
+          tone={summary.net < 0 ? colors.expense : colors.primary}
+        />
+        <Text style={s.muted}>
+          Không tính số dư ban đầu và chuyển nội bộ; đây không phải biến động số
+          dư ví.
+        </Text>
       </AppCard>
       {summary.income || summary.expense ? (
         <AppCard>
@@ -122,7 +143,18 @@ export default function Statistics() {
               <DonutChart rows={visibleRows} total={total} />
             )}
             {visibleRows.map((row) => (
-              <View key={row.id} style={[s.between, { minHeight: 48 }]}>
+              <View
+                key={row.id}
+                style={[
+                  s.between,
+                  {
+                    minHeight: 48,
+                    flexDirection: stack ? 'column' : 'row',
+                    alignItems: stack ? 'stretch' : 'center',
+                    paddingVertical: 8,
+                  },
+                ]}
+              >
                 <View style={[s.row, { flex: 1 }]}>
                   <Icon name={row.icon} color={row.color} />
                   <View style={{ flex: 1 }}>
@@ -135,7 +167,7 @@ export default function Statistics() {
                     </Text>
                   </View>
                 </View>
-                <Amount value={row.amount} />
+                <Amount value={row.amount} style={{ alignSelf: 'flex-end' }} />
               </View>
             ))}
           </>
@@ -176,20 +208,16 @@ export default function Statistics() {
                     </Text>
                   </View>
                   <Text style={s.muted}>{row.count} giao dịch thu/chi</Text>
-                  <View style={s.between}>
-                    <Text style={s.text}>Thu nhập</Text>
-                    <Amount
-                      value={row.income}
-                      style={{ color: colors.income }}
-                    />
-                  </View>
-                  <View style={s.between}>
-                    <Text style={s.text}>Chi tiêu</Text>
-                    <Amount
-                      value={row.expense}
-                      style={{ color: colors.expense }}
-                    />
-                  </View>
+                  <MoneyRow
+                    label="Thu nhập"
+                    value={row.income}
+                    tone={colors.income}
+                  />
+                  <MoneyRow
+                    label="Chi tiêu"
+                    value={row.expense}
+                    tone={colors.expense}
+                  />
                 </View>
               );
             })

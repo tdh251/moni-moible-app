@@ -53,7 +53,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --test tests/finance.test.mjs",
+    "test": "node --experimental-transform-types --test tests/finance.test.mjs tests/third-party.test.mjs tests/ui-design.test.mjs",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "private": true

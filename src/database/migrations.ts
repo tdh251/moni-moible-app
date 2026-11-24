@@ -1,4 +1,65 @@
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 22;
+export const migration22 = `
+CREATE TABLE IF NOT EXISTS third_party_cases (
+ id TEXT PRIMARY KEY NOT NULL,
+ title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
+ person TEXT NOT NULL CHECK(length(trim(person)) BETWEEN 1 AND 100),
+ description TEXT NOT NULL DEFAULT '', expected_amount INTEGER CHECK(expected_amount IS NULL OR (typeof(expected_amount)='integer' AND expected_amount BETWEEN 0 AND 9007199254740991)),
+ started_at TEXT NOT NULL, due_at TEXT, note TEXT NOT NULL DEFAULT '', tag_ids_json TEXT NOT NULL DEFAULT '[]',
+ status TEXT NOT NULL CHECK(status IN ('pending','in_progress','fulfilled','completed','cancelled')),
+ completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 0 CHECK(typeof(revision)='integer' AND revision>=0),
+ CHECK((status='completed' AND completed_at IS NOT NULL) OR (status<>'completed' AND completed_at IS NULL))
+);
+CREATE TABLE IF NOT EXISTS third_party_settlements (
+ id TEXT PRIMARY KEY NOT NULL, case_id TEXT NOT NULL REFERENCES third_party_cases(id) ON DELETE RESTRICT,
+ request_json TEXT NOT NULL, created_at TEXT NOT NULL, undone_at TEXT
+);
+CREATE TABLE IF NOT EXISTS third_party_entries (
+ id TEXT PRIMARY KEY NOT NULL, case_id TEXT NOT NULL REFERENCES third_party_cases(id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('receive','payment','refund','reimbursement','payment_refund','settlement_income','settlement_expense')),
+ amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount BETWEEN 1 AND 9007199254740991),
+ account_id TEXT REFERENCES accounts(id) ON DELETE RESTRICT,
+ category_id TEXT REFERENCES categories(id) ON DELETE RESTRICT,
+ related_entry_id TEXT REFERENCES third_party_entries(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+ settlement_id TEXT REFERENCES third_party_settlements(id) ON DELETE RESTRICT,
+ tag_ids_json TEXT NOT NULL DEFAULT '[]', note TEXT NOT NULL DEFAULT '',
+ occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ sequence INTEGER NOT NULL UNIQUE CHECK(typeof(sequence)='integer' AND sequence BETWEEN 1 AND 9007199254740991),
+ CHECK((kind IN ('settlement_income','settlement_expense') AND account_id IS NULL AND category_id IS NOT NULL) OR (kind NOT IN ('settlement_income','settlement_expense') AND account_id IS NOT NULL AND category_id IS NULL)),
+ CHECK((kind='payment_refund' AND related_entry_id IS NOT NULL) OR (kind<>'payment_refund' AND related_entry_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS third_party_cases_person_status ON third_party_cases(person,status,started_at);
+CREATE INDEX IF NOT EXISTS third_party_entries_case_date ON third_party_entries(case_id,occurred_at,sequence);
+CREATE INDEX IF NOT EXISTS third_party_entries_account_date ON third_party_entries(account_id,occurred_at);
+CREATE INDEX IF NOT EXISTS third_party_entries_payment ON third_party_entries(related_entry_id);
+CREATE INDEX IF NOT EXISTS third_party_entries_settlement ON third_party_entries(settlement_id);
+CREATE INDEX IF NOT EXISTS third_party_entries_category ON third_party_entries(category_id,occurred_at);
+CREATE INDEX IF NOT EXISTS third_party_settlements_case ON third_party_settlements(case_id);
+PRAGMA user_version=22;
+`;
+export const migration21 = `
+CREATE TABLE IF NOT EXISTS purchases (
+ id TEXT PRIMARY KEY NOT NULL,
+ title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
+ person TEXT NOT NULL CHECK(length(trim(person)) BETWEEN 1 AND 100),
+ amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount BETWEEN 1 AND 9007199254740991),
+ account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+ note TEXT NOT NULL DEFAULT '', due_at TEXT,
+ occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS purchase_refunds (
+ id TEXT PRIMARY KEY NOT NULL,
+ purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+ amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount BETWEEN 1 AND 9007199254740991),
+ account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+ note TEXT NOT NULL DEFAULT '', occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS purchase_refunds_purchase ON purchase_refunds(purchase_id);
+CREATE INDEX IF NOT EXISTS purchases_account ON purchases(account_id,occurred_at);
+CREATE INDEX IF NOT EXISTS purchase_refunds_account ON purchase_refunds(account_id,occurred_at);
+PRAGMA user_version=21;
+`;
 export const migration20 = `
 CREATE TABLE IF NOT EXISTS transaction_drafts (
  id TEXT PRIMARY KEY NOT NULL,

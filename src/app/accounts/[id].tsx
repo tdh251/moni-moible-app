@@ -1,4 +1,7 @@
 import { loanCashFlows } from '../../services/loans';
+import { purchaseCashFlows } from '../../services/purchases';
+import { ThirdPartyEntryRow } from '../../features/third-party/ThirdPartyEntryRow';
+import { thirdPartyEntryOrder } from '../../services/third-party';
 import { useMemo, useState } from 'react';
 import { createTransactionListIndex } from '../../services/transaction-list';
 import { Modal, Pressable, Text, View } from 'react-native';
@@ -21,9 +24,13 @@ import { accountBalances, parseAmount } from '../../services/accounting/ledger';
 import { formatVnd } from '../../utils/format';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { FormActions } from '../../components/ui/FormActions';
+import { HeroCard, MoneyRow } from '../../components/ui/primitives';
+import { useReducedMotionPreference } from '../../hooks/motion';
+import { colors } from '../../theme';
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, mutate, busy } = useFinance();
+  const reducedMotion = useReducedMotionPreference();
   const transactionIndex = useMemo(
     () => createTransactionListIndex(data),
     [data],
@@ -48,6 +55,19 @@ export default function AccountDetail() {
   const loanFlows = loanCashFlows(data)
     .filter((flow) => flow.account_id === id)
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  const thirdPartyEntries = (data.thirdPartyEntries ?? [])
+    .filter((entry) => entry.account_id === id)
+    .sort((a, b) => thirdPartyEntryOrder(b, a));
+  const thirdPartyCases = new Map(
+    (data.thirdPartyCases ?? []).map((item) => [item.id, item]),
+  );
+  const purchaseFlows = purchaseCashFlows(data)
+    .filter((flow) => flow.account_id === id)
+    .sort(
+      (a, b) =>
+        b.occurred_at.localeCompare(a.occurred_at) ||
+        b.created_at.localeCompare(a.created_at),
+    );
   const saveOpening = async () => {
     try {
       const amount = parseAmount(opening, true);
@@ -76,7 +96,7 @@ export default function AccountDetail() {
   };
   return (
     <ScreenContainer
-      title={a.name}
+      title="Chi tiết tài khoản"
       back
       subtitle={a.is_archived ? 'Tài khoản đã lưu trữ' : 'Chi tiết tài khoản'}
       rightAction={
@@ -145,22 +165,23 @@ export default function AccountDetail() {
         ) : undefined
       }
     >
-      <AppCard>
-        <Text style={s.muted}>Số dư hiện tại</Text>
-        <Amount
-          value={accountBalances(data)[id]}
-          style={{ fontSize: 30, lineHeight: 42 }}
+      <HeroCard
+        label="Số dư hiện tại"
+        value={accountBalances(data)[id]}
+        subtitle={a.name}
+      >
+        <MoneyRow
+          label="Số dư ban đầu"
+          value={a.opening_balance}
+          tone={colors.onDark}
+          labelTone={colors.onDarkMuted}
         />
-        <Text style={s.muted}>
-          Số dư ban đầu:{' '}
-          <Amount value={a.opening_balance} style={{ fontSize: 13 }} />
-        </Text>
-      </AppCard>
+      </HeroCard>
       {!a.is_archived && (
         <>
           {editing && (
             <Modal
-              animationType="slide"
+              animationType={reducedMotion ? 'none' : 'slide'}
               onRequestClose={() => {
                 if (!busy) setEditing(false);
               }}
@@ -205,10 +226,55 @@ export default function AccountDetail() {
                 Chỉ dùng khi bạn nhập sai số dư lúc bắt đầu. Để ghi tiền thực
                 nhận hoặc thực chi, hãy tạo giao dịch.
               </Text>
-              <AmountInput value={opening} onChangeText={setOpening} />
+              <AmountInput
+                prominent
+                value={opening}
+                onChangeText={setOpening}
+              />
             </AppCard>
           )}
         </>
+      )}
+      {thirdPartyEntries.length > 0 && (
+        <AppCard>
+          <Text style={s.heading}>Thu chi hộ trong tài khoản</Text>
+          {thirdPartyEntries.map((entry) => (
+            <ThirdPartyEntryRow
+              key={entry.id}
+              entry={entry}
+              accountName={a.name}
+              title={`${thirdPartyCases.get(entry.case_id)?.title ?? ''} · ${thirdPartyCases.get(entry.case_id)?.person ?? ''}`}
+            />
+          ))}
+        </AppCard>
+      )}
+      {purchaseFlows.length > 0 && (
+        <AppCard>
+          <Text style={s.heading}>Mua hộ trong tài khoản</Text>
+          {purchaseFlows.map((flow) => (
+            <Pressable
+              key={flow.id}
+              accessibilityRole="button"
+              style={{ paddingVertical: 10, gap: 6 }}
+              onPress={() =>
+                router.push({
+                  pathname: '/purchases/[id]',
+                  params: { id: flow.purchase_id },
+                })
+              }
+            >
+              <Text style={s.text}>{flow.title}</Text>
+              <View style={s.between}>
+                <Text style={s.muted}>
+                  {new Date(flow.occurred_at).toLocaleDateString('vi-VN')}
+                </Text>
+                <Amount
+                  value={flow.source_account_id ? -flow.amount : flow.amount}
+                />
+              </View>
+            </Pressable>
+          ))}
+        </AppCard>
       )}
       {loanFlows.length > 0 && (
         <AppCard>

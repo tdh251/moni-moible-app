@@ -26,6 +26,7 @@ import { colors } from '../../theme';
 import type { Loan } from '../../types/finance';
 import { LoanReminderFields } from './LoanReminderFields';
 import { requestLoanReminderPermission } from '../../services/loan-reminders/notifications';
+import { Disclosure } from '../../components/ui/primitives';
 import { FormActions } from '../../components/ui/FormActions';
 import { MotionSection } from '../../components/ui/MotionSection';
 import { BalanceExclusionCheckbox } from '../transactions/BalanceExclusionCheckbox';
@@ -159,7 +160,14 @@ export function LoanForm({
               costs_json: serializeCosts(),
             }),
           );
-      if (saved) router.back();
+      if (saved) {
+        if (loan) router.back();
+        else
+          router.dismissTo({
+            pathname: '/(tabs)/loans',
+            params: { side: lending ? 'receivable' : 'payable', kind: '' },
+          });
+      }
     } catch (error) {
       showError(error);
     } finally {
@@ -216,6 +224,31 @@ export function LoanForm({
         </AppCard>
       )}
       <AppCard>
+        <View style={{ gap: 0 }}>
+          <AmountInput
+            prominent
+            label={
+              lending
+                ? loan
+                  ? 'Số tiền thu hồi (VND)'
+                  : 'Số tiền cho vay (VND)'
+                : loan
+                  ? 'Số tiền trả (VND)'
+                  : 'Số tiền vay (VND)'
+            }
+            value={amount}
+            onChangeText={setAmount}
+            showHint={false}
+          />
+          {!loan && (
+            <BalanceExclusionCheckbox
+              value={excludeFromBalance}
+              onChange={setExcludeFromBalance}
+              disabled={busy || saving}
+              embedded
+            />
+          )}
+        </View>
         {!loan && (
           <View style={{ position: 'relative', zIndex: 20, elevation: 20 }}>
             <Field
@@ -274,30 +307,6 @@ export function LoanForm({
             )}
           </View>
         )}
-        <View style={{ gap: 0 }}>
-          <AmountInput
-            label={
-              lending
-                ? loan
-                  ? 'Số tiền thu hồi (VND)'
-                  : 'Số tiền cho vay (VND)'
-                : loan
-                  ? 'Số tiền trả (VND)'
-                  : 'Số tiền vay (VND)'
-            }
-            value={amount}
-            onChangeText={setAmount}
-            showHint={false}
-          />
-          {!loan && (
-            <BalanceExclusionCheckbox
-              value={excludeFromBalance}
-              onChange={setExcludeFromBalance}
-              disabled={busy || saving}
-              embedded
-            />
-          )}
-        </View>
         {fullRepayment && (
           <MotionSection style={{ gap: 12 }}>
             <AmountInput
@@ -339,28 +348,30 @@ export function LoanForm({
           }
           variant="dropdown"
         />
-        <SecondaryButton
-          label={`${lending ? (loan ? 'Ngày thu hồi' : 'Ngày cho vay') : loan ? 'Ngày trả nợ' : 'Ngày nhận tiền'}: ${date.toLocaleDateString('vi-VN')}`}
-          icon="calendar-outline"
-          onPress={() => setPicker('date')}
-          disabled={busy}
-        />
-        <SecondaryButton
-          label={`Giờ: ${date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`}
-          icon="time-outline"
-          onPress={() => setPicker('time')}
-          disabled={busy}
-        />
-        {!loan && (
-          <Field
-            label="Ghi chú"
-            value={note}
-            onChangeText={setNote}
-            maxLength={4000}
-            multiline
-            placeholder="Nội dung khoản vay, thỏa thuận…"
+        <Disclosure title="Ngày và ghi chú" defaultOpen={!!loan}>
+          <SecondaryButton
+            label={`${lending ? (loan ? 'Ngày thu hồi' : 'Ngày cho vay') : loan ? 'Ngày trả nợ' : 'Ngày nhận tiền'}: ${date.toLocaleDateString('vi-VN')}`}
+            icon="calendar-outline"
+            onPress={() => setPicker('date')}
+            disabled={busy}
           />
-        )}
+          <SecondaryButton
+            label={`Giờ: ${date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`}
+            icon="time-outline"
+            onPress={() => setPicker('time')}
+            disabled={busy}
+          />
+          {!loan && (
+            <Field
+              label="Ghi chú"
+              value={note}
+              onChangeText={setNote}
+              maxLength={4000}
+              multiline
+              placeholder="Nội dung khoản vay, thỏa thuận…"
+            />
+          )}
+        </Disclosure>
         <Text style={s.muted}>
           {lending
             ? loan
@@ -377,109 +388,111 @@ export function LoanForm({
       </AppCard>
       {!loan && (
         <AppCard>
-          <Text style={s.heading}>Kỳ hạn</Text>
-          <Choices
-            value={term}
-            onChange={setTerm}
-            options={[
-              { value: 'none', label: 'Không kỳ hạn' },
-              { value: 'fixed', label: 'Có kỳ hạn' },
-            ]}
-          />
-          {term === 'fixed' && (
-            <MotionSection style={{ gap: 12 }}>
-              <SecondaryButton
-                label={
-                  dueDate
-                    ? `Ngày đến hạn: ${dueDate.toLocaleDateString('vi-VN')}`
-                    : 'Chọn ngày đến hạn'
-                }
-                icon="calendar-outline"
-                disabled={busy}
-                onPress={() => setPicker('due')}
-              />
-              <LoanReminderFields
-                value={paymentDay}
-                onChange={setPaymentDay}
-                lending={lending}
-                timeMinutes={paymentTimeMinutes}
-                onTimeChange={setPaymentTimeMinutes}
-                disabled={saving || busy}
-              />
-            </MotionSection>
-          )}
-          <Text style={s.heading}>
-            {lending ? 'Lãi / phí cần thu' : 'Chi phí vay'}
-          </Text>
-          <Text style={s.muted}>
-            {lending
-              ? 'Nhập tổng tiền lãi hoặc phí người vay cần trả theo thỏa thuận (VND). Khoản này được cộng vào tổng cần thu hồi.'
-              : 'Nhập tổng tiền lãi, bảo hiểm hoặc phí theo thỏa thuận (VND). Chi phí được cộng vào tổng khoản vay phải trả.'}
-          </Text>
-          {costs.map((cost, index) => (
-            <View key={cost.id} style={{ gap: 10 }}>
-              <Field
-                label={`${lending ? 'Tên lãi / phí' : 'Tên chi phí'} ${index + 1}`}
-                value={cost.name}
-                maxLength={100}
-                onChangeText={(name) =>
-                  setCosts((current) =>
-                    current.map((item) =>
-                      item.id === cost.id ? { ...item, name } : item,
-                    ),
-                  )
-                }
-              />
-              <AmountInput
-                value={cost.amount}
-                onChangeText={(amount) =>
-                  setCosts((current) =>
-                    current.map((item) =>
-                      item.id === cost.id ? { ...item, amount } : item,
-                    ),
-                  )
-                }
-              />
-              <SecondaryButton
-                label={lending ? 'Xóa lãi / phí' : 'Xóa chi phí'}
-                danger
-                icon="trash-outline"
-                disabled={busy}
-                onPress={() =>
-                  setCosts((current) =>
-                    current.filter((item) => item.id !== cost.id),
-                  )
-                }
-              />
-            </View>
-          ))}
-          {costs.length < 50 && (
-            <Dropdown
-              label={lending ? 'Thêm lãi / phí' : 'Thêm chi phí'}
-              placeholder="Thêm lãi, bảo hiểm, phí khác"
-              value=""
+          <Disclosure title="Kỳ hạn, nhắc lịch và chi phí">
+            <Text style={s.heading}>Kỳ hạn</Text>
+            <Choices
+              value={term}
+              onChange={setTerm}
               options={[
-                { value: 'interest', label: 'Tiền lãi' },
-                { value: 'insurance', label: 'Phí bảo hiểm' },
-                { value: 'other', label: 'Phí khác' },
+                { value: 'none', label: 'Không kỳ hạn' },
+                { value: 'fixed', label: 'Có kỳ hạn' },
               ]}
-              onChange={(kind) =>
-                setCosts((current) => [
-                  ...current,
-                  {
-                    id: randomUUID(),
-                    name:
-                      kind === 'interest'
-                        ? 'Tiền lãi'
-                        : kind === 'insurance'
-                          ? 'Phí bảo hiểm'
-                          : 'Phí khác',
-                    amount: '',
-                  },
-                ])
-              }
             />
-          )}
+            {term === 'fixed' && (
+              <MotionSection style={{ gap: 12 }}>
+                <SecondaryButton
+                  label={
+                    dueDate
+                      ? `Ngày đến hạn: ${dueDate.toLocaleDateString('vi-VN')}`
+                      : 'Chọn ngày đến hạn'
+                  }
+                  icon="calendar-outline"
+                  disabled={busy}
+                  onPress={() => setPicker('due')}
+                />
+                <LoanReminderFields
+                  value={paymentDay}
+                  onChange={setPaymentDay}
+                  lending={lending}
+                  timeMinutes={paymentTimeMinutes}
+                  onTimeChange={setPaymentTimeMinutes}
+                  disabled={saving || busy}
+                />
+              </MotionSection>
+            )}
+            <Text style={s.heading}>
+              {lending ? 'Lãi / phí cần thu' : 'Chi phí vay'}
+            </Text>
+            <Text style={s.muted}>
+              {lending
+                ? 'Nhập tổng tiền lãi hoặc phí người vay cần trả theo thỏa thuận (VND). Khoản này được cộng vào tổng cần thu hồi.'
+                : 'Nhập tổng tiền lãi, bảo hiểm hoặc phí theo thỏa thuận (VND). Chi phí được cộng vào tổng khoản vay phải trả.'}
+            </Text>
+            {costs.map((cost, index) => (
+              <View key={cost.id} style={{ gap: 10 }}>
+                <Field
+                  label={`${lending ? 'Tên lãi / phí' : 'Tên chi phí'} ${index + 1}`}
+                  value={cost.name}
+                  maxLength={100}
+                  onChangeText={(name) =>
+                    setCosts((current) =>
+                      current.map((item) =>
+                        item.id === cost.id ? { ...item, name } : item,
+                      ),
+                    )
+                  }
+                />
+                <AmountInput
+                  value={cost.amount}
+                  onChangeText={(amount) =>
+                    setCosts((current) =>
+                      current.map((item) =>
+                        item.id === cost.id ? { ...item, amount } : item,
+                      ),
+                    )
+                  }
+                />
+                <SecondaryButton
+                  label={lending ? 'Xóa lãi / phí' : 'Xóa chi phí'}
+                  danger
+                  icon="trash-outline"
+                  disabled={busy}
+                  onPress={() =>
+                    setCosts((current) =>
+                      current.filter((item) => item.id !== cost.id),
+                    )
+                  }
+                />
+              </View>
+            ))}
+            {costs.length < 50 && (
+              <Dropdown
+                label={lending ? 'Thêm lãi / phí' : 'Thêm chi phí'}
+                placeholder="Thêm lãi, bảo hiểm, phí khác"
+                value=""
+                options={[
+                  { value: 'interest', label: 'Tiền lãi' },
+                  { value: 'insurance', label: 'Phí bảo hiểm' },
+                  { value: 'other', label: 'Phí khác' },
+                ]}
+                onChange={(kind) =>
+                  setCosts((current) => [
+                    ...current,
+                    {
+                      id: randomUUID(),
+                      name:
+                        kind === 'interest'
+                          ? 'Tiền lãi'
+                          : kind === 'insurance'
+                            ? 'Phí bảo hiểm'
+                            : 'Phí khác',
+                      amount: '',
+                    },
+                  ])
+                }
+              />
+            )}
+          </Disclosure>
         </AppCard>
       )}
       {!loan && total !== undefined && (
